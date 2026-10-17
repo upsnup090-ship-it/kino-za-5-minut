@@ -42,6 +42,10 @@ def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
 def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
     """Проверяет черновик. При любой ошибке возвращает черновик как есть."""
     body = build_judge_prompt(choice, draft_data, cfg)
+    if not cfg.judge_model:
+        logger.warning("JUDGE_MODEL не задан, берём черновик как есть")
+        draft_data["verdict"] = "fallback"
+        return draft_data
     try:
         response = requests.post(
             f"{cfg.llm_base_url.rstrip('/')}/chat/completions",
@@ -49,7 +53,11 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
             headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
             timeout=cfg.settings.llm_timeout,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = response.text[:300]
+            logger.warning("судья вернул %s: %s", response.status_code, detail)
+            draft_data["verdict"] = "fallback"
+            return draft_data
         data = response.json()
         choices = data.get("choices") or []
         if not choices:

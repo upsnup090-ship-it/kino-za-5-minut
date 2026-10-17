@@ -23,6 +23,10 @@ llm:
     max_tokens: 1300
   timeout_seconds: 60
 
+models:
+  draft: "meta-llama/llama-3.1-8b-instruct"
+  judge: "meta-llama/llama-3.1-8b-instruct"
+
 wiki:
   timeout_seconds: 15
   user_agent: "KinoZa5Minut/1.0"
@@ -37,3 +41,4 @@ caption:
 
 publish:
   parse_mode: HTML
+  timeout_seconds: 30

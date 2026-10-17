@@ -44,6 +44,7 @@ class Settings:
     llm_timeout: float = 60.0
     wiki_timeout: float = 15.0
     wiki_user_agent: str = "KinoZa5Minut/1.0"
+    telegram_timeout: float = 30.0
     retry_max_attempts: int = 3
     retry_backoff: float = 2.0
     caption_max_length: int = 950
@@ -89,8 +90,19 @@ def _require_env(name: str) -> str:
     return value
 
 
-def load_config() -> Config:
+def _optional_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value.startswith("replace_me"):
+        return ""
+    return value
+
+
+def load_config(env_file: str | None = None) -> Config:
+    # Порядок: сначала .env, затем .env.test (перекрывает). Явный env_file — приоритетнее.
     load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / ".env.test", override=True)
+    if env_file:
+        load_dotenv(env_file, override=True)
 
     sources_raw = _load_yaml(CONFIG_DIR / "sources.yaml").get("sources", [])
     sources = []
@@ -126,6 +138,7 @@ def load_config() -> Config:
     collect = settings_raw.get("collect", {})
     choose = settings_raw.get("choose", {})
     llm = settings_raw.get("llm", {})
+    models = settings_raw.get("models", {})
     wiki = settings_raw.get("wiki", {})
     retry = settings_raw.get("retry", {})
     caption = settings_raw.get("caption", {})
@@ -150,6 +163,7 @@ def load_config() -> Config:
         llm_timeout=float(llm.get("timeout_seconds", 60)),
         wiki_timeout=float(wiki.get("timeout_seconds", 15)),
         wiki_user_agent=str(wiki.get("user_agent", "KinoZa5Minut/1.0")),
+        telegram_timeout=float(publish.get("timeout_seconds", 30)),
         retry_max_attempts=int(retry.get("max_attempts", 3)),
         retry_backoff=float(retry.get("backoff_seconds", 2)),
         caption_max_length=int(caption.get("max_length", 950)),
@@ -161,6 +175,10 @@ def load_config() -> Config:
     if not state_path.is_absolute():
         state_path = ROOT / state_path
 
+    draft_model = _optional_env("DRAFT_MODEL") or str(models.get("draft", ""))
+    judge_model = _optional_env("JUDGE_MODEL") or str(models.get("judge", ""))
+    judge_fallback_model = _optional_env("JUDGE_FALLBACK_MODEL")
+
     return Config(
         sources=sources,
         weights={str(k): int(v) for k, v in weights.items()},
@@ -169,11 +187,11 @@ def load_config() -> Config:
         settings=settings,
         llm_base_url=_require_env("LLM_BASE_URL"),
         llm_api_key=_require_env("LLM_API_KEY"),
-        draft_model=_require_env("DRAFT_MODEL"),
-        judge_model=_require_env("JUDGE_MODEL"),
-        judge_fallback_model=os.getenv("JUDGE_FALLBACK_MODEL", "").strip(),
+        draft_model=draft_model,
+        judge_model=judge_model,
+        judge_fallback_model=judge_fallback_model,
         bot_token=_require_env("BOT_TOKEN"),
-        channel_chat_id=os.getenv("CHANNEL_CHAT_ID", "").strip(),
-        admin_chat_id=os.getenv("ADMIN_CHAT_ID", "").strip(),
+        channel_chat_id=_optional_env("CHANNEL_CHAT_ID"),
+        admin_chat_id=_optional_env("ADMIN_CHAT_ID"),
         state_path=state_path,
     )

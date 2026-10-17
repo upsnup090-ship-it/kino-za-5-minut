@@ -31,7 +31,7 @@ def send_photo(cfg: Config, chat_id: str, image_url: str, caption: str) -> bool:
                 "caption": caption,
                 "parse_mode": cfg.settings.parse_mode,
             },
-            timeout=cfg.settings.llm_timeout,
+            timeout=cfg.settings.telegram_timeout,
         )
         response.raise_for_status()
         return True
@@ -49,7 +49,7 @@ def send_text(cfg: Config, chat_id: str, text: str) -> bool:
                 "text": text,
                 "parse_mode": cfg.settings.parse_mode,
             },
-            timeout=cfg.settings.llm_timeout,
+            timeout=cfg.settings.telegram_timeout,
         )
         response.raise_for_status()
         return True
@@ -66,7 +66,7 @@ def notify_admin(cfg: Config, text: str) -> None:
         requests.post(
             _api_url(cfg.bot_token, "sendMessage"),
             data={"chat_id": cfg.admin_chat_id, "text": text},
-            timeout=cfg.settings.llm_timeout,
+            timeout=cfg.settings.telegram_timeout,
         )
     except requests.RequestException:
         logger.warning("не удалось уведомить админа")
