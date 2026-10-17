@@ -10,6 +10,7 @@ import requests
 
 from kino.choose import Choice
 from kino.config import Config
+from kino.jsonparse import parse_json_object
 from kino.prompts import judge_system, judge_user
 
 logger = logging.getLogger(__name__)
@@ -25,116 +26,18 @@ def _notify_fallback(cfg: Config, reason: str) -> None:
         pass
 
 
-_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.DOTALL)
-
-
-def _strip_fences(text: str) -> str:
-    """Убирает markdown-ограждение ```json ... ```, если модель его добавила."""
-    match = _FENCE_RE.search(text)
-    if match:
-        return match.group(1).strip()
-    return text.strip()
-
-
-def _balanced_object(text: str, start: int) -> str | None:
-    """Возвращает подстроку от '{' до парной '}', корректно считая вложенность
-    и пропуская фигурные скобки внутри строк."""
-    depth = 0
-    in_string = False
-    escaped = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return None
-
-
-def _escape_control_chars(blob: str) -> str:
-    """Экранирует сырые переводы строк/табы внутри JSON-строк.
-
-    Модели иногда вставляют настоящий \\n внутрь значения вместо \\n-эскейпа —
-    json.loads на таком падает со 'Invalid control character'."""
-    out: list[str] = []
-    in_string = False
-    escaped = False
-    for ch in blob:
-        if in_string:
-            if escaped:
-                escaped = False
-                out.append(ch)
-                continue
-            if ch == "\\":
-                escaped = True
-                out.append(ch)
-                continue
-            if ch == '"':
-                in_string = False
-                out.append(ch)
-                continue
-            if ch == "\n":
-                out.append("\\n")
-                continue
-            if ch == "\r":
-                out.append("\\r")
-                continue
-            if ch == "\t":
-                out.append("\\t")
-                continue
-            out.append(ch)
-            continue
-        if ch == '"':
-            in_string = True
-        out.append(ch)
-    return "".join(out)
+_SALVAGE_KEYS = ("verdict", "headline", "text", "key_moment", "question")
 
 
 def parse_judge_json(content: str) -> dict:
-    """Достаёт JSON-объект из ответа модели.
-
-    Стратегии по порядку: markdown-фенсы, первый сбалансированный объект,
-    экранирование управляющих символов внутри строк. Бросает ValueError,
-    если ни одна не сработала — вызывающий сделает фолбэк."""
-    text = _strip_fences(content)
-    if not text:
-        raise ValueError("пустой ответ судьи")
-
-    candidates: list[str] = []
-    start = text.find("{")
-    if start >= 0:
-        balanced = _balanced_object(text, start)
-        if balanced:
-            candidates.append(balanced)
-        end = text.rfind("}")
-        if end > start:
-            candidates.append(text[start : end + 1])
-
-    last_error: Exception | None = None
-    for blob in candidates:
-        for attempt in (blob, _escape_control_chars(blob)):
-            try:
-                parsed = json.loads(attempt)
-            except json.JSONDecodeError as exc:
-                last_error = exc
-                continue
-            if isinstance(parsed, dict):
-                return parsed
-    if last_error is not None:
-        raise ValueError(f"не удалось разобрать JSON судьи: {last_error}") from last_error
-    raise ValueError("в ответе судьи нет JSON")
+    """Достаёт JSON-объект из ответа судьи. Обрезанный ответ спасается по
+    ключевым полям, чтобы решение судьи не терялось."""
+    return parse_json_object(
+        content,
+        salvage_keys=_SALVAGE_KEYS,
+        empty_message="пустой ответ судьи",
+        missing_message="в ответе судьи нет JSON",
+    )
 
 
 def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
@@ -185,7 +88,13 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         choices = data.get("choices") or []
         if not choices:
             raise ValueError("пустой ответ судьи")
+        finish_reason = choices[0].get("finish_reason")
         content = str(choices[0].get("message", {}).get("content", ""))
+        if finish_reason == "length":
+            logger.warning(
+                "судья обрезан по max_tokens (%d) — подними llm.judge.max_tokens",
+                cfg.settings.judge_max_tokens,
+            )
         try:
             parsed = parse_judge_json(content)
         except ValueError as exc:

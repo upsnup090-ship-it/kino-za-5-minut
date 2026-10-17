@@ -17,11 +17,11 @@ choose:
 llm:
   draft:
     temperature: 0.75
-    max_tokens: 1500
+    max_tokens: 2048
     top_p: 0.9
   judge:
     temperature: 0.1
-    max_tokens: 1300
+    max_tokens: 2048
   timeout_seconds: 60
 
 providers:

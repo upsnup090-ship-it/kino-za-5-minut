@@ -9,9 +9,13 @@ import requests
 
 from kino.choose import Choice
 from kino.config import Config
+from kino.jsonparse import parse_json_object
 from kino.prompts import draft_system, draft_user
 
 logger = logging.getLogger(__name__)
+
+# Поля черновика, которые имеет смысл спасти из обрезанного ответа.
+_DRAFT_SALVAGE_KEYS = ("headline", "text", "key_moment", "question")
 
 
 class DraftError(Exception):
@@ -41,15 +45,17 @@ def build_prompt(choice: Choice, cfg: Config) -> dict:
 
 
 def parse_draft(content: str) -> dict:
-    """Достаёт JSON из ответа модели."""
-    start = content.find("{")
-    end = content.rfind("}")
-    if start < 0 or end <= start:
-        raise DraftError("в ответе модели нет JSON")
+    """Достаёт JSON из ответа модели. Обрезанный ответ спасается по ключевым
+    полям, чтобы черновик не терялся из-за упора в max_tokens."""
     try:
-        return json.loads(content[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise DraftError(f"не удалось разобрать JSON: {exc}") from exc
+        return parse_json_object(
+            content,
+            salvage_keys=_DRAFT_SALVAGE_KEYS,
+            empty_message="пустой ответ модели",
+            missing_message="в ответе модели нет JSON",
+        )
+    except ValueError as exc:
+        raise DraftError(str(exc)) from exc
 
 
 def _post_chat(cfg: Config, body: dict) -> requests.Response:
