@@ -1,0 +1,39 @@
+# Общие настройки пайплайна.
+collect:
+  timeout_seconds: 15
+  snippet_length: 300
+  freshness_days: 48
+  top_n: 25
+  allow_stale_fallback: true
+  user_agent: "KinoZa5Minut/1.0"
+  max_workers: 6
+
+choose:
+  window_size: 10
+  state_max_links: 120
+  state_max_signatures: 60
+
+llm:
+  draft:
+    temperature: 0.75
+    max_tokens: 1500
+    top_p: 0.9
+  judge:
+    temperature: 0.1
+    max_tokens: 1300
+  timeout_seconds: 60
+
+wiki:
+  timeout_seconds: 15
+  user_agent: "KinoZa5Minut/1.0"
+
+retry:
+  max_attempts: 3
+  backoff_seconds: 2
+
+caption:
+  max_length: 950
+  hard_limit: 1000
+
+publish:
+  parse_mode: HTML

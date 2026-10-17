@@ -1,0 +1,42 @@
+# Источники RSS/Atom. name — человекочитаемое имя, url — адрес фида.
+sources:
+  - name: Deadline
+    url: https://deadline.com/feed/
+  - name: Variety
+    url: https://variety.com/feed/
+  - name: THR
+    url: https://www.hollywoodreporter.com/hq/wp-feed.php?hpnews=movie
+  - name: SlashFilm
+    url: https://www.slashfilm.com/feed/
+  - name: Reddit/movies
+    url: https://www.reddit.com/r/movies/top/.rss?t=day
+  - name: Reddit/TrueFilm
+    url: https://www.reddit.com/r/TrueFilm/top/.rss?t=week
+  - name: Reddit/marvelstudios
+    url: https://www.reddit.com/r/marvelstudios/top/.rss?t=day
+  - name: Reddit/boxoffice
+    url: https://www.reddit.com/r/boxoffice/top/.rss?t=day
+  - name: Reddit/letterboxd
+    url: https://www.reddit.com/r/letterboxd/top/.rss?t=day
+  - name: YT/IGN
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw
+  - name: YT/SonyPicturesTV
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCghNDC2eT10D3TsiB2ooWow
+  - name: YT/A24
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCuPivVjnfNo4mb3Oog_frZg
+  - name: YT/Netflix
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCWOA1ZGywLbqmigxE4Qlvuw
+  - name: YT/Universal
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCq0OueAsdxH6b8nyAspwViw
+  - name: YT/Paramount
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCF9imwPMSGz4Vq1NiTWCC7g
+  - name: YT/SonyPictures
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCz97F7dMxBNOfGYu3rx8aCw
+  - name: YT/Lionsgate
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCJ6nMHaJPZvsJ-HmUmj1SeA
+  - name: YT/RottenTomatoes
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCE0Wkd9Jcn2-TNo5G8bLQrA
+  - name: YT/ScreenRant
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UC2iUwfYi_1FCGGqhOUNx-iA
+  - name: YT/Variety
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCgRQHK8Ttr1j9xCEpCAlgbQ

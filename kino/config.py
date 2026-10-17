@@ -1,0 +1,179 @@
+"""Загрузка конфигурации и переменных окружения."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG_DIR = ROOT / "config"
+
+
+class ConfigError(Exception):
+    """Ошибка конфигурации."""
+
+
+@dataclass
+class Source:
+    name: str
+    url: str
+
+
+@dataclass
+class Settings:
+    collect_timeout: float = 15.0
+    snippet_length: int = 300
+    freshness_days: int = 48
+    top_n: int = 25
+    allow_stale_fallback: bool = True
+    user_agent: str = "KinoZa5Minut/1.0"
+    max_workers: int = 6
+    window_size: int = 10
+    state_max_links: int = 120
+    state_max_signatures: int = 60
+    draft_temperature: float = 0.75
+    draft_max_tokens: int = 1500
+    draft_top_p: float = 0.9
+    judge_temperature: float = 0.1
+    judge_max_tokens: int = 1300
+    llm_timeout: float = 60.0
+    wiki_timeout: float = 15.0
+    wiki_user_agent: str = "KinoZa5Minut/1.0"
+    retry_max_attempts: int = 3
+    retry_backoff: float = 2.0
+    caption_max_length: int = 950
+    caption_hard_limit: int = 1000
+    parse_mode: str = "HTML"
+
+
+@dataclass
+class Config:
+    sources: list[Source] = field(default_factory=list)
+    weights: dict[str, int] = field(default_factory=dict)
+    bad: list[str] = field(default_factory=list)
+    sad: list[str] = field(default_factory=list)
+    settings: Settings = field(default_factory=Settings)
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    draft_model: str = ""
+    judge_model: str = ""
+    judge_fallback_model: str = ""
+    bot_token: str = ""
+    channel_chat_id: str = ""
+    admin_chat_id: str = ""
+    state_path: Path = ROOT / "data" / "state.json"
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"нет файла конфигурации: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"ошибка YAML в {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"конфиг {path} должен быть словарём")
+    return data
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value or value.startswith("replace_me"):
+        raise ConfigError(f"переменная окружения {name} не задана")
+    return value
+
+
+def load_config() -> Config:
+    load_dotenv(ROOT / ".env")
+
+    sources_raw = _load_yaml(CONFIG_DIR / "sources.yaml").get("sources", [])
+    sources = []
+    for item in sources_raw:
+        if not isinstance(item, dict):
+            raise ConfigError("sources.yaml: каждый источник должен быть словарём")
+        name = str(item.get("name", "")).strip()
+        url = str(item.get("url", "")).strip()
+        if not name or not url:
+            raise ConfigError("sources.yaml: у источника должны быть name и url")
+        sources.append(Source(name=name, url=url))
+    if not sources:
+        raise ConfigError("sources.yaml: список источников пуст")
+
+    formats = _load_yaml(CONFIG_DIR / "formats.yaml")
+    weights = formats.get("weights", {})
+    bad = formats.get("bad", [])
+    sad = formats.get("sad", [])
+    if not isinstance(weights, dict) or not weights:
+        raise ConfigError("formats.yaml: weights должен быть непустым словарём")
+    for key, value in weights.items():
+        if not isinstance(key, str) or not isinstance(value, (int, float)):
+            raise ConfigError("formats.yaml: weights должен быть словарём строка -> число")
+    for key in ("bad", "sad"):
+        items = formats.get(key, [])
+        if not isinstance(items, list):
+            raise ConfigError(f"formats.yaml: {key} должен быть списком")
+        for item in items:
+            if not isinstance(item, str):
+                raise ConfigError(f"formats.yaml: {key} содержит не строку: {item!r}")
+
+    settings_raw = _load_yaml(CONFIG_DIR / "settings.yaml")
+    collect = settings_raw.get("collect", {})
+    choose = settings_raw.get("choose", {})
+    llm = settings_raw.get("llm", {})
+    wiki = settings_raw.get("wiki", {})
+    retry = settings_raw.get("retry", {})
+    caption = settings_raw.get("caption", {})
+    publish = settings_raw.get("publish", {})
+
+    settings = Settings(
+        collect_timeout=float(collect.get("timeout_seconds", 15)),
+        snippet_length=int(collect.get("snippet_length", 300)),
+        freshness_days=int(collect.get("freshness_days", 48)),
+        top_n=int(collect.get("top_n", 25)),
+        allow_stale_fallback=bool(collect.get("allow_stale_fallback", True)),
+        user_agent=str(collect.get("user_agent", "KinoZa5Minut/1.0")),
+        max_workers=int(collect.get("max_workers", 6)),
+        window_size=int(choose.get("window_size", 10)),
+        state_max_links=int(choose.get("state_max_links", 120)),
+        state_max_signatures=int(choose.get("state_max_signatures", 60)),
+        draft_temperature=float(llm.get("draft", {}).get("temperature", 0.75)),
+        draft_max_tokens=int(llm.get("draft", {}).get("max_tokens", 1500)),
+        draft_top_p=float(llm.get("draft", {}).get("top_p", 0.9)),
+        judge_temperature=float(llm.get("judge", {}).get("temperature", 0.1)),
+        judge_max_tokens=int(llm.get("judge", {}).get("max_tokens", 1300)),
+        llm_timeout=float(llm.get("timeout_seconds", 60)),
+        wiki_timeout=float(wiki.get("timeout_seconds", 15)),
+        wiki_user_agent=str(wiki.get("user_agent", "KinoZa5Minut/1.0")),
+        retry_max_attempts=int(retry.get("max_attempts", 3)),
+        retry_backoff=float(retry.get("backoff_seconds", 2)),
+        caption_max_length=int(caption.get("max_length", 950)),
+        caption_hard_limit=int(caption.get("hard_limit", 1000)),
+        parse_mode=str(publish.get("parse_mode", "HTML")),
+    )
+
+    state_path = Path(os.getenv("STATE_PATH", "data/state.json"))
+    if not state_path.is_absolute():
+        state_path = ROOT / state_path
+
+    return Config(
+        sources=sources,
+        weights={str(k): int(v) for k, v in weights.items()},
+        bad=[str(x) for x in bad],
+        sad=[str(x) for x in sad],
+        settings=settings,
+        llm_base_url=_require_env("LLM_BASE_URL"),
+        llm_api_key=_require_env("LLM_API_KEY"),
+        draft_model=_require_env("DRAFT_MODEL"),
+        judge_model=_require_env("JUDGE_MODEL"),
+        judge_fallback_model=os.getenv("JUDGE_FALLBACK_MODEL", "").strip(),
+        bot_token=_require_env("BOT_TOKEN"),
+        channel_chat_id=os.getenv("CHANNEL_CHAT_ID", "").strip(),
+        admin_chat_id=os.getenv("ADMIN_CHAT_ID", "").strip(),
+        state_path=state_path,
+    )
