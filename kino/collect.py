@@ -17,7 +17,7 @@ from kino.config import Config, Source
 logger = logging.getLogger(__name__)
 
 _TAG_RE = re.compile(r"<[^>]*>")
-_SPACE_RE = re.compile(r"[ \t\r\f\v]+")
+_SPACE_RE = re.compile(r"\s+")
 
 
 @dataclass
