@@ -126,7 +126,7 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         kind, link_url = pick_variation(cfg, final_data, image.url, choice)
         published = False
         if kind == "article":
-            link_url = _publish_article(cfg, final_data, image.url)
+            link_url = _publish_article(cfg, final_data, image.url, choice)
             if link_url:
                 kind = "link"  # статья уходит постом-ссылкой с превью
             else:
@@ -166,7 +166,7 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         lock.release()
 
 
-def _publish_article(cfg: Config, draft_data: dict, image_url: str) -> str:
+def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choice) -> str:
     """Создаёт страницу Telegraph из черновика. Ошибка → '' (фолбэк на фото)."""
     try:
         from kino.telegraph import TelegraphError, create_page, load_token
@@ -186,7 +186,7 @@ def _publish_article(cfg: Config, draft_data: dict, image_url: str) -> str:
             title,
             body,
             image_url=image_url,
-            source_url=str(draft_data.get("source", "") or ""),
+            source_url=choice.item.link,
         )
     except TelegraphError as exc:
         logger.warning("telegraph недоступен: %s — фолбэк на фото", exc)

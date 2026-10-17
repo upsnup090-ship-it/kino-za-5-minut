@@ -14,6 +14,16 @@ from kino.prompts import judge_system, judge_user
 logger = logging.getLogger(__name__)
 
 
+def _notify_fallback(cfg: Config, reason: str) -> None:
+    """Сообщает админу, что пост ушёл без проверки судьёй. Ошибки глотаем."""
+    try:
+        from kino.publish import notify_admin
+
+        notify_admin(cfg, f"judge fallback: {reason}")
+    except Exception:  # noqa: BLE001 — уведомление не должно ронять пайплайн
+        pass
+
+
 def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
     """Собирает тело запроса к судье."""
     item = choice.item
@@ -41,6 +51,7 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
     if not cfg.judge_model:
         logger.warning("JUDGE_MODEL не задан, берём черновик как есть")
         draft_data["verdict"] = "fallback"
+        _notify_fallback(cfg, "JUDGE_MODEL не задан")
         return draft_data
     try:
         response = requests.post(
@@ -53,6 +64,7 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
             detail = response.text[:300]
             logger.warning("судья вернул %s: %s", response.status_code, detail)
             draft_data["verdict"] = "fallback"
+            _notify_fallback(cfg, f"судья вернул HTTP {response.status_code}")
             return draft_data
         data = response.json()
         choices = data.get("choices") or []
@@ -82,4 +94,5 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
     except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
         logger.warning("судья недоступен (%s), берём черновик", exc.__class__.__name__)
         draft_data["verdict"] = "fallback"
+        _notify_fallback(cfg, f"судья недоступен: {exc.__class__.__name__}")
         return draft_data
