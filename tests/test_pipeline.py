@@ -135,3 +135,25 @@ def test_run_publish_saves_state(tmp_path):
     assert result.dry_run is False
     assert result.published is True
     mock_save_state.assert_called_once()
+
+def test_pick_variation_weights_and_fallback():
+    from types import SimpleNamespace
+    from kino.pipeline import pick_variation
+    from kino.choose import Choice
+    from kino.collect import FeedItem
+
+    item = FeedItem(source="s", title="t", link="https://example.com/a", pub_date="", ts=0, snippet="")
+    choice = Choice(item=item, format="news", quality_score=0, sad_topic=False)
+    settings = SimpleNamespace(post_variations={"photo": 100, "link": 0, "article": 0})
+    cfg = SimpleNamespace(settings=settings)
+    kinds = {pick_variation(cfg, {}, "", choice)[0] for _ in range(50)}
+    assert kinds == {"photo"}
+
+    settings2 = SimpleNamespace(post_variations={})
+    cfg2 = SimpleNamespace(settings=settings2)
+    assert pick_variation(cfg2, {}, "", choice) == ("photo", "")
+
+    settings3 = SimpleNamespace(post_variations={"link": 100})
+    cfg3 = SimpleNamespace(settings=settings3)
+    kind, url = pick_variation(cfg3, {}, "", choice)
+    assert (kind, url) == ("link", "https://example.com/a")

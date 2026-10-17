@@ -50,6 +50,7 @@ class Settings:
     caption_max_length: int = 950
     caption_hard_limit: int = 1000
     parse_mode: str = "HTML"
+    post_variations: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -178,6 +179,7 @@ def load_config(env_file: str | None = None) -> Config:
         caption_max_length=int(caption.get("max_length", 950)),
         caption_hard_limit=int(caption.get("hard_limit", 1000)),
         parse_mode=str(publish.get("parse_mode", "HTML")),
+        post_variations=dict(settings_raw.get("post_variations", {}) or {}),
     )
 
     state_path = Path(os.getenv("STATE_PATH", "data/state.json"))
