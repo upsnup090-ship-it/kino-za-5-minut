@@ -45,7 +45,7 @@ class Settings:
     wiki_timeout: float = 15.0
     wiki_user_agent: str = "KinoZa5Minut/1.0"
     telegram_timeout: float = 30.0
-    retry_max_attempts: int = 3
+    retry_max_attempts: int = 5
     retry_backoff: float = 2.0
     caption_max_length: int = 950
     caption_hard_limit: int = 1000
@@ -67,7 +67,15 @@ class Config:
     bot_token: str = ""
     channel_chat_id: str = ""
     admin_chat_id: str = ""
+    proxy_url: str | None = None
     state_path: Path = ROOT / "data" / "state.json"
+    stats_path: Path = ROOT / "logs" / "format_stats.csv"
+    source_mode: str = "rss"
+    horizon_dir: Path = ROOT / "horizon"
+    horizon_summaries_dir: Path = ROOT / "horizon" / "data" / "summaries"
+    horizon_run: bool = True
+    horizon_hours: int = 24
+    horizon_timeout: float = 600.0
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -143,6 +151,7 @@ def load_config(env_file: str | None = None) -> Config:
     retry = settings_raw.get("retry", {})
     caption = settings_raw.get("caption", {})
     publish = settings_raw.get("publish", {})
+    horizon = settings_raw.get("horizon", {})
 
     settings = Settings(
         collect_timeout=float(collect.get("timeout_seconds", 15)),
@@ -175,6 +184,28 @@ def load_config(env_file: str | None = None) -> Config:
     if not state_path.is_absolute():
         state_path = ROOT / state_path
 
+    stats_path = Path(os.getenv("STATS_PATH", "logs/format_stats.csv"))
+    if not stats_path.is_absolute():
+        stats_path = ROOT / stats_path
+
+    source_mode = str(os.getenv("SOURCE_MODE", horizon.get("source", "rss"))).strip().lower()
+    if source_mode not in ("rss", "horizon"):
+        raise ConfigError(f"SOURCE_MODE должен быть rss или horizon, получено: {source_mode!r}")
+
+    horizon_dir = Path(os.getenv("HORIZON_DIR", horizon.get("dir", "horizon")))
+    if not horizon_dir.is_absolute():
+        horizon_dir = ROOT / horizon_dir
+
+    # summaries_dir по умолчанию — внутри клона Horizon (horizon_dir/data/summaries).
+    summaries_default = str(horizon.get("summaries_dir", "")) or "data/summaries"
+    horizon_summaries_dir = Path(os.getenv("HORIZON_SUMMARIES_DIR", summaries_default))
+    if not horizon_summaries_dir.is_absolute():
+        horizon_summaries_dir = horizon_dir / horizon_summaries_dir
+
+    horizon_run = bool(horizon.get("run", True))
+    horizon_hours = int(horizon.get("hours", 24))
+    horizon_timeout = float(horizon.get("timeout_seconds", 600))
+
     draft_model = _optional_env("DRAFT_MODEL") or str(models.get("draft", ""))
     judge_model = _optional_env("JUDGE_MODEL") or str(models.get("judge", ""))
     judge_fallback_model = _optional_env("JUDGE_FALLBACK_MODEL")
@@ -193,5 +224,13 @@ def load_config(env_file: str | None = None) -> Config:
         bot_token=_require_env("BOT_TOKEN"),
         channel_chat_id=_optional_env("CHANNEL_CHAT_ID"),
         admin_chat_id=_optional_env("ADMIN_CHAT_ID"),
+        proxy_url=_optional_env("PROXY_URL") or None,
         state_path=state_path,
+        stats_path=stats_path,
+        source_mode=source_mode,
+        horizon_dir=horizon_dir,
+        horizon_summaries_dir=horizon_summaries_dir,
+        horizon_run=horizon_run,
+        horizon_hours=horizon_hours,
+        horizon_timeout=horizon_timeout,
     )

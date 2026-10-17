@@ -24,16 +24,24 @@ llm:
   timeout_seconds: 60
 
 models:
-  draft: "meta-llama/llama-3.1-8b-instruct"
-  judge: "meta-llama/llama-3.1-8b-instruct"
+  draft: "gpt-4o-mini"
+  judge: "gpt-4o-mini"
 
 wiki:
   timeout_seconds: 15
   user_agent: "KinoZa5Minut/1.0"
 
+horizon:
+  source: rss            # rss | horizon — источник новостей
+  dir: horizon           # путь к клону Horizon (относительно корня проекта)
+  summaries_dir: data/summaries   # куда Horizon кладёт .md (относительно dir)
+  run: true              # запускать `uv run horizon` перед чтением дайджеста
+  hours: 24              # окно новостей для Horizon
+  timeout_seconds: 600   # таймаут запуска Horizon
+
 retry:
-  max_attempts: 3
-  backoff_seconds: 2
+  max_attempts: 5      # Максимум попыток при 429/сетевых ошибках
+  backoff_seconds: 2   # Базовое время ожидания (секунды)
 
 caption:
   max_length: 950

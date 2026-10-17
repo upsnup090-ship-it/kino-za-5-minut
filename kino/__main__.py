@@ -11,6 +11,7 @@ from kino.collect import FeedItem
 from kino.choose import Choice
 from kino.config import ConfigError, load_config
 from kino.draft import DraftError, draft
+from kino.horizon import HorizonError
 from kino.pipeline import run
 from kino.publish import notify_admin
 
@@ -71,6 +72,9 @@ def _cmd_run(args) -> int:
         return 0
     except ConfigError as exc:
         logger.error("ошибка конфигурации: %s", exc)
+        return 1
+    except HorizonError as exc:
+        logger.error("ошибка источника Horizon: %s", exc)
         return 1
     except Exception as exc:  # noqa: BLE001 — последний рубеж, сообщаем админу
         logger.exception("необработанная ошибка")

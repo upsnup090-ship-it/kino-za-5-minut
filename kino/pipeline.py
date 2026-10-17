@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from kino.caption import escape_html, truncate_caption
 from kino.choose import Choice, choose
 from kino.collect import collect
 from kino.config import Config
 from kino.draft import draft
+from kino.horizon import HorizonError, collect_horizon
 from kino.image import find_image
 from kino.judge import judge
 from kino.publish import publish
@@ -25,6 +28,29 @@ class RunResult:
     format: str
     published: bool
     dry_run: bool
+
+
+def record_format_stat(cfg: Config, choice: Choice) -> None:
+    """Дописывает строку в CSV статистики форматов. Ошибки записи не роняют пайплайн."""
+    if not cfg.stats_path:
+        return
+    try:
+        cfg.stats_path.parent.mkdir(parents=True, exist_ok=True)
+        new_file = not cfg.stats_path.exists()
+        with cfg.stats_path.open("a", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            if new_file:
+                writer.writerow(["timestamp", "format", "source", "quality_score"])
+            writer.writerow(
+                [
+                    datetime.now(timezone.utc).isoformat(),
+                    choice.format,
+                    choice.item.source,
+                    choice.quality_score,
+                ]
+            )
+    except OSError as exc:
+        logger.warning("не удалось записать статистику формата: %s", exc)
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Config) -> str:
@@ -57,8 +83,19 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         used_links = set(state.used_links)
         used_sigs = state.used_sigs
 
-        collected = collect(cfg)
+        if cfg.source_mode == "horizon":
+            collected = collect_horizon(
+                cfg.horizon_dir,
+                cfg.horizon_summaries_dir,
+                run=cfg.horizon_run,
+                hours=cfg.horizon_hours,
+                timeout=cfg.horizon_timeout,
+            )
+        else:
+            collected = collect(cfg)
         choice: Choice = choose(collected.items, cfg, used_links, used_sigs)
+
+        record_format_stat(cfg, choice)
 
         draft_data = draft(choice, cfg)
         final_data = judge(choice, draft_data, cfg)
