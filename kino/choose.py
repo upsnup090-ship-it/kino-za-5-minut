@@ -122,16 +122,27 @@ def choose(
     if not items:
         raise RuntimeError("выбор: нет записей")
 
+    # bad-фильтр применяем первым и отдельно: фолбэк ниже не должен
+    # воскрешать записи, которые явно запрещены правилами канала.
+    allowed = [
+        item for item in items
+        if not _contains_phrase(f"{item.title} {item.snippet} {item.link}", cfg.bad)
+    ]
+    if not allowed:
+        # Все записи запрещены правилами — лучше пропустить прогон
+        # (админ получит уведомление), чем опубликовать не-киношный мусор.
+        raise RuntimeError("выбор: все записи отфильтрованы как нерелевантные")
+
     relevant = []
-    for item in items:
-        text = f"{item.title} {item.snippet} {item.link}"
-        if _contains_phrase(text, cfg.bad):
-            continue
-        if _relevance_score(item) < 1:
+    for item in allowed:
+        # Порог 2: одного «случайного» балла мало (например, бонус за длинный
+        # snippet сам по себе допускал не-киношные SEO-заметки вроде
+        # «watch ... football game free streams»).
+        if _relevance_score(item) < 2:
             continue
         relevant.append(item)
 
-    usable = relevant if relevant else items
+    usable = relevant if relevant else allowed
 
     sigs: list[list[str]] = []
     deduped: list[FeedItem] = []
