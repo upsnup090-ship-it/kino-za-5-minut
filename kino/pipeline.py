@@ -14,7 +14,7 @@ from kino.collect import collect
 from kino.config import Config
 from kino.draft import draft
 from kino.horizon import HorizonError, collect_horizon
-from kino.image import find_image, find_images
+from kino.image import find_image, find_image_multi, find_images
 from kino.judge import judge
 from kino.publish import publish
 from kino.state import State, StateLock, load_state, record_choice, save_state
@@ -120,7 +120,16 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         final_data = judge(choice, draft_data, cfg)
 
         wiki_title = str(final_data.get("wiki", "")).strip()
-        image = find_image(wiki_title, cfg)
+        # Судья заполняет wiki не всегда, но film/director обычно есть —
+        # берём картинку по первому непустому кандидату.
+        image = find_image_multi(
+            [
+                wiki_title,
+                str(final_data.get("film", "")).strip(),
+                str(final_data.get("director", "")).strip(),
+            ],
+            cfg,
+        )
 
         caption = build_caption(final_data, image.url, cfg)
 

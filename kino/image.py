@@ -80,19 +80,28 @@ def find_image(wiki_title: str, cfg: Config) -> ImageResult:
 
     Поле wiki может прийти как название статьи или как ссылка на википедию —
     нормализуем через _wiki_query."""
-    query, hinted_lang = _wiki_query(wiki_title)
-    if not query:
-        return ImageResult()
-    langs = ("ru", "en")
-    if hinted_lang in ("ru", "en"):
-        langs = (hinted_lang, "en" if hinted_lang == "ru" else "ru")
-    for lang in langs:
-        page = _search(lang, query, cfg)
-        if not page:
+    return find_image_multi([wiki_title], cfg)
+
+
+def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:
+    """Ищет картинку по нескольким кандидатам по порядку.
+
+    Судья заполняет wiki не всегда, но может заполнить film или director —
+    тогда картинку берём по ним, а не уходим в пост без изображения."""
+    for raw in candidates:
+        query, hinted_lang = _wiki_query(raw)
+        if not query:
             continue
-        url = _thumbnail(page)
-        if url:
-            return ImageResult(url=url, title=str(page.get("title", "")), lang=lang)
+        langs = ("ru", "en")
+        if hinted_lang in ("ru", "en"):
+            langs = (hinted_lang, "en" if hinted_lang == "ru" else "ru")
+        for lang in langs:
+            page = _search(lang, query, cfg)
+            if not page:
+                continue
+            url = _thumbnail(page)
+            if url:
+                return ImageResult(url=url, title=str(page.get("title", "")), lang=lang)
     return ImageResult()
 
 
