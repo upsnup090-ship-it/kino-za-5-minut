@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -85,7 +86,7 @@ def _extract_ts(entry: dict) -> float:
     return 0.0
 
 
-def _fetch_one(source: Source, cfg: Config) -> tuple[str, list[FeedItem] | None, str | None]:
+def _fetch_once(source: Source, cfg: Config) -> tuple[str, list[FeedItem] | None, str | None]:
     try:
         response = requests.get(
             source.url,
@@ -115,10 +116,32 @@ def _fetch_one(source: Source, cfg: Config) -> tuple[str, list[FeedItem] | None,
                 )
             )
         return source.name, items, None
+    except requests.HTTPError as exc:
+        # 4xx/5xx: повтор с тем же URL редко поможет только для 5xx —
+        # повторяем, но с пометкой статуса.
+        return source.name, None, f"http error: {exc.response.status_code if exc.response is not None else '?'}"
     except requests.RequestException as exc:
         return source.name, None, f"request error: {exc.__class__.__name__}"
     except Exception as exc:  # noqa: BLE001 — ловим всё, чтобы не уронить сбор
         return source.name, None, f"unexpected error: {exc.__class__.__name__}"
+
+
+def _fetch_one(source: Source, cfg: Config) -> tuple[str, list[FeedItem] | None, str | None]:
+    """Запрос к источнику с повторами при сетевых ошибках (не при HTTP-статусах)."""
+    attempts = 3
+    delay = 2.0
+    last: tuple[str, list[FeedItem] | None, str | None] = (source.name, None, "unknown")
+    for attempt in range(attempts):
+        last = _fetch_once(source, cfg)
+        error = last[2]
+        if error is None:
+            return last
+        # Повторяем только сетевые сбои; HTTP-статусы и ошибки парсинга не пройдут сами.
+        if not error.startswith("request error"):
+            return last
+        if attempt < attempts - 1:
+            time.sleep(delay * (attempt + 1))
+    return last
 
 
 def collect(cfg: Config) -> CollectResult:

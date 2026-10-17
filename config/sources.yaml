@@ -8,6 +8,14 @@ sources:
     url: https://www.hollywoodreporter.com/hq/wp-feed.php?hpnews=movie
   - name: SlashFilm
     url: https://www.slashfilm.com/feed/
+  - name: IndieWire
+    url: https://www.indiewire.com/feed/
+  - name: Guardian
+    url: https://www.theguardian.com/film/rss
+  - name: RollingStone
+    url: https://www.rollingstone.com/movies/feed/
+  - name: AVClub
+    url: https://www.avclub.com/rss
   - name: Reddit/movies
     url: https://www.reddit.com/r/movies/top/.rss?t=day
   - name: Reddit/TrueFilm
