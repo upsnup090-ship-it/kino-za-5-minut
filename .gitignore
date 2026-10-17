@@ -3,6 +3,7 @@ logs/
 __pycache__/
 *.pyc
 venv/
+.venv/
 data/*.json
 data/*.lock
 data/*.txt

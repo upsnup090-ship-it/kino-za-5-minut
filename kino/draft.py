@@ -55,12 +55,14 @@ def parse_draft(content: str) -> dict:
 def _post_chat(cfg: Config, body: dict) -> requests.Response:
     """POST /chat/completions с единой обработкой сетевых ошибок."""
     url = f"{cfg.llm_base_url.rstrip('/')}/chat/completions"
+    proxies = {"http": cfg.llm_proxy_url, "https": cfg.llm_proxy_url} if cfg.llm_proxy_url else None
     try:
         return requests.post(
             url,
             json=body,
             headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
             timeout=cfg.settings.llm_timeout,
+            proxies=proxies,
         )
     except requests.Timeout as exc:
         raise DraftError(f"таймаут LLM ({cfg.settings.llm_timeout}с)") from exc

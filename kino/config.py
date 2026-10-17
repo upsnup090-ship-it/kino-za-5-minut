@@ -69,6 +69,7 @@ class Config:
     channel_chat_id: str = ""
     admin_chat_id: str = ""
     proxy_url: str | None = None
+    llm_proxy_url: str | None = None
     state_path: Path = ROOT / "data" / "state.json"
     stats_path: Path = ROOT / "logs" / "format_stats.csv"
     source_mode: str = "rss"
@@ -208,9 +209,32 @@ def load_config(env_file: str | None = None) -> Config:
     horizon_hours = int(horizon.get("hours", 24))
     horizon_timeout = float(horizon.get("timeout_seconds", 600))
 
-    draft_model = _optional_env("DRAFT_MODEL") or str(models.get("draft", ""))
-    judge_model = _optional_env("JUDGE_MODEL") or str(models.get("judge", ""))
+    # Выбор провайдера LLM: env > yaml, по умолчанию gemini (free tier).
+    provider_name = _optional_env("LLM_PROVIDER") or str(settings_raw.get("llm_provider", "gemini"))
+    providers = settings_raw.get("providers", {})
+    provider = providers.get(provider_name, {}) if isinstance(providers, dict) else {}
+
+    provider_base_url = provider.get("base_url", "") if isinstance(provider, dict) else ""
+    provider_api_key = provider.get("api_key", "") if isinstance(provider, dict) else ""
+    provider_draft_model = provider.get("draft_model", "") if isinstance(provider, dict) else ""
+    provider_judge_model = provider.get("judge_model", "") if isinstance(provider, dict) else ""
+
+    # API key в YAML может быть плейсхолдером ${VAR} — разрешаем через env.
+    def _resolve_api_key(key_value: str) -> str:
+        if isinstance(key_value, str) and key_value.startswith("${") and key_value.endswith("}"):
+            return os.getenv(key_value[2:-1], "")
+        return key_value or ""
+
+    llm_base_url = _optional_env("LLM_BASE_URL") or provider_base_url
+    llm_api_key = _optional_env("LLM_API_KEY") or _resolve_api_key(provider_api_key)
+    draft_model = _optional_env("DRAFT_MODEL") or provider_draft_model or str(models.get("draft", ""))
+    judge_model = _optional_env("JUDGE_MODEL") or provider_judge_model or str(models.get("judge", ""))
     judge_fallback_model = _optional_env("JUDGE_FALLBACK_MODEL")
+
+    if not llm_base_url:
+        raise ConfigError("LLM_BASE_URL не задан (ни в .env, ни в providers.<name>.base_url)")
+    if not llm_api_key:
+        raise ConfigError("LLM_API_KEY не задан (ни в .env, ни в providers.<name>.api_key)")
 
     return Config(
         sources=sources,
@@ -218,8 +242,8 @@ def load_config(env_file: str | None = None) -> Config:
         bad=[str(x) for x in bad],
         sad=[str(x) for x in sad],
         settings=settings,
-        llm_base_url=_require_env("LLM_BASE_URL"),
-        llm_api_key=_require_env("LLM_API_KEY"),
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
         draft_model=draft_model,
         judge_model=judge_model,
         judge_fallback_model=judge_fallback_model,
@@ -227,6 +251,7 @@ def load_config(env_file: str | None = None) -> Config:
         channel_chat_id=_optional_env("CHANNEL_CHAT_ID"),
         admin_chat_id=_optional_env("ADMIN_CHAT_ID"),
         proxy_url=_optional_env("PROXY_URL") or None,
+        llm_proxy_url=_optional_env("LLM_PROXY_URL") or _optional_env("PROXY_URL") or None,
         state_path=state_path,
         stats_path=stats_path,
         source_mode=source_mode,

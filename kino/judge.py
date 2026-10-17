@@ -54,11 +54,13 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         _notify_fallback(cfg, "JUDGE_MODEL не задан")
         return draft_data
     try:
+        proxies = {"http": cfg.llm_proxy_url, "https": cfg.llm_proxy_url} if cfg.llm_proxy_url else None
         response = requests.post(
             f"{cfg.llm_base_url.rstrip('/')}/chat/completions",
             json=body,
             headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
             timeout=cfg.settings.llm_timeout,
+            proxies=proxies,
         )
         if response.status_code >= 400:
             detail = response.text[:300]

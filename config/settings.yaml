@@ -24,9 +24,31 @@ llm:
     max_tokens: 1300
   timeout_seconds: 60
 
+providers:
+  gemini:
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    api_key: "${GEMINI_API_KEY}"
+    draft_model: "gemini-3.8-flash"
+    judge_model: "gemini-3.8-flash"
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: "${OPENROUTER_API_KEY}"
+    draft_model: "openai/gpt-4o-mini"
+    judge_model: "openai/gpt-4o-mini"
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    draft_model: "gpt-4o-mini"
+    judge_model: "gpt-4o-mini"
+  groq:
+    base_url: "https://api.groq.com/openai/v1"
+    api_key: "${GROQ_API_KEY}"
+    draft_model: "llama-3.1-70b-versatile"
+    judge_model: "llama-3.1-70b-versatile"
+
 models:
-  draft: "openai/gpt-4o-mini"
-  judge: "openai/gpt-4o-mini"
+  draft: "gemini-3.8-flash"
+  judge: "gemini-3.8-flash"
 
 wiki:
   timeout_seconds: 15
