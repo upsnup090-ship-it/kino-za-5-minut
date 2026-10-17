@@ -124,6 +124,7 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         caption = build_caption(final_data, image.url, cfg)
 
         kind, link_url = pick_variation(cfg, final_data, image.url, choice)
+        logger.info("вариация поста: %s", kind)
         published = False
         if kind == "article":
             link_url = _publish_article(cfg, final_data, image.url, choice)
