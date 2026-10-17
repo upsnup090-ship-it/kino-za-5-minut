@@ -1,16 +1,42 @@
-"""Картинка и карточка из Wikipedia."""
+"""Картинка и карточка из Wikipedia.
+
+Два эндпоинта, и это принципиально:
+
+- `w/rest.php/v1/search/page` — поиск статьи по названию. Он отдаёт
+  `thumbnail` не всегда: у свежих фильмов (например, «Whalefall» 2026)
+  в результатах поиска превью пустое, хотя статья существует.
+- `api/rest_v1/page/summary/<key>` — превью по точному ключу статьи. Здесь
+  картинка есть всегда, когда она есть у статьи.
+
+Поэтому поиск даёт кандидатов, а картинку берём из summary. Плюс отбор:
+при `limit=1` первым результатом часто идёт актёр или роман, а не фильм,
+так что берём несколько кандидатов и предпочитаем тот, чьё описание
+говорит о фильме.
+"""
 
 from __future__ import annotations
 
 import logging
+import re
+import time
 from dataclasses import dataclass
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import requests
 
 from kino.config import Config
 
 logger = logging.getLogger(__name__)
+
+# Минимальная пауза между запросами к Wikipedia (секунды).
+_WIKI_MIN_INTERVAL = 0.8
+_last_request = 0.0
+
+# Признак фильма в описании статьи: "фильм", "film", "movie", "телесериал".
+_FILM_HINT_RE = re.compile(
+    r"\b(фильм|кинофильм|мультфильм|телесериал|сериал|film|movie|series)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -46,28 +72,110 @@ def _wiki_query(raw: str) -> tuple[str, str]:
     return text, ""
 
 
-def _search(lang: str, query: str, cfg: Config) -> dict | None:
+def _search(lang: str, query: str, cfg: Config, limit: int = 3) -> list[dict]:
+    """Поиск страниц. Возвращает список результатов (может быть пустым).
+
+    Wikipedia отдаёт 429 при частых запросах, поэтому здесь пауза между
+    вызовами и повторы с уважением к Retry-After. Без этого пакетный поиск
+    картинок (gallery) стабильно упирается в лимит.
+    """
+    url = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/page"
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                url,
+                params={"q": query, "limit": limit},
+                headers={"User-Agent": cfg.settings.wiki_user_agent},
+                timeout=cfg.settings.wiki_timeout,
+            )
+        except requests.RequestException as exc:
+            logger.warning("wiki %s: %s", lang, exc.__class__.__name__)
+            return []
+        if response.status_code == 429:
+            wait = float(response.headers.get("Retry-After") or 5 * (attempt + 1))
+            logger.warning("wiki %s: 429, ждём %.0fс (%d/3)", lang, wait, attempt + 1)
+            time.sleep(wait)
+            continue
+        try:
+            response.raise_for_status()
+            pages = response.json().get("pages") or []
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning("wiki %s: %s", lang, exc.__class__.__name__)
+            return []
+        _throttle()
+        return [p for p in pages if isinstance(p, dict)]
+    return []
+
+
+def _throttle() -> None:
+    """Пауза между запросами к Wikipedia: без неё ловим 429."""
+    global _last_request
+    elapsed = time.monotonic() - _last_request
+    if elapsed < _WIKI_MIN_INTERVAL:
+        time.sleep(_WIKI_MIN_INTERVAL - elapsed)
+    _last_request = time.monotonic()
+
+
+def _norm(text: str) -> str:
+    """Нормализует строку для сравнения названий."""
+    return re.sub(r"[^a-zа-яё0-9]+", " ", text.lower().replace("_", " ")).strip()
+
+
+def _pick_page(pages: list[dict], query: str) -> dict | None:
+    """Выбирает страницу из результатов поиска.
+
+    Wikipedia ранжирует сама и обычно ставит нужную статью первой: для
+    «Братья Коэн» первая — статья о режиссёрах, а не «Фарго». Поэтому
+    первый результат берём как основной. Отбор по слову «фильм» применяем
+    только если первая страница вообще не пересекается с запросом — иначе
+    он уводит на связанный, но другой фильм.
+    """
+    if not pages:
+        return None
+    first = pages[0]
+    first_words = set(_norm(first.get("key", "")).split()) | set(
+        _norm(first.get("title", "")).split()
+    )
+    query_words = {w for w in _norm(query).split() if len(w) > 2}
+    # Первая страница связана с запросом — доверяем ранжированию Wikipedia.
+    if not query_words or (first_words & query_words):
+        return first
+    # Первая страница не совпала: ищем среди остальных ту, что похожа на фильм.
+    for page in pages[1:]:
+        haystack = f"{page.get('description', '')} {page.get('key', '')}"
+        if _FILM_HINT_RE.search(haystack):
+            return page
+    return first
+
+
+def _summary_thumb(lang: str, key: str, cfg: Config) -> str:
+    """Превью статьи по точному ключу. Пусто, если картинки нет."""
+    _throttle()
     try:
         response = requests.get(
-            f"https://{lang}.wikipedia.org/w/rest.php/v1/search/page",
-            params={"q": query, "limit": 1},
+            f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(key, safe='')}",
             headers={"User-Agent": cfg.settings.wiki_user_agent},
             timeout=cfg.settings.wiki_timeout,
         )
         response.raise_for_status()
-        pages = response.json().get("pages") or []
-        return pages[0] if pages else None
+        data = response.json()
     except (requests.RequestException, ValueError) as exc:
-        logger.warning("wiki %s: %s", lang, exc.__class__.__name__)
-        return None
+        logger.warning("wiki summary %s/%s: %s", lang, key, exc.__class__.__name__)
+        return ""
+    thumb = data.get("thumbnail") or data.get("originalimage") or {}
+    source = str(thumb.get("source") or "")
+    return _clean_url(source)
 
 
-def _thumbnail(page: dict) -> str:
-    thumb = page.get("thumbnail") or {}
-    url = str(thumb.get("url") or thumb.get("source") or "")
+def _clean_url(url: str) -> str:
+    """Нормализует URL картинки: протокол, домен, размер, query."""
+    if not url:
+        return ""
     if url.startswith("//"):
         url = "https:" + url
+    # thumb.wikimedia.org — старый алиас; upload.wikimedia.org работает всегда.
     url = url.replace("//thumb.wikimedia.org/", "//upload.wikimedia.org/")
+    # Убираем query, но сохраняем путь со /thumb/.../Npx-: он даёт нужный размер.
     if "?" in url:
         url = url.split("?")[0]
     if "no_image" in url:
@@ -75,11 +183,18 @@ def _thumbnail(page: dict) -> str:
     return url
 
 
+def _thumb_from_search(page: dict) -> str:
+    """Превью прямо из результата поиска — быстрый путь, когда оно есть."""
+    thumb = page.get("thumbnail") or {}
+    return _clean_url(str(thumb.get("url") or thumb.get("source") or ""))
+
+
 def find_image(wiki_title: str, cfg: Config) -> ImageResult:
     """Ищет картинку: сначала ru, затем en.
 
     Поле wiki может прийти как название статьи или как ссылка на википедию —
-    нормализуем через _wiki_query."""
+    нормализуем через _wiki_query.
+    """
     return find_image_multi([wiki_title], cfg)
 
 
@@ -87,7 +202,11 @@ def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:
     """Ищет картинку по нескольким кандидатам по порядку.
 
     Судья заполняет wiki не всегда, но может заполнить film или director —
-    тогда картинку берём по ним, а не уходим в пост без изображения."""
+    тогда картинку берём по ним, а не уходим в пост без изображения.
+
+    Порядок для каждого кандидата: поиск → отбор страницы-фильма → превью из
+    summary (там оно есть даже когда поиск его не отдал).
+    """
     for raw in candidates:
         query, hinted_lang = _wiki_query(raw)
         if not query:
@@ -96,10 +215,17 @@ def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:
         if hinted_lang in ("ru", "en"):
             langs = (hinted_lang, "en" if hinted_lang == "ru" else "ru")
         for lang in langs:
-            page = _search(lang, query, cfg)
+            pages = _search(lang, query, cfg)
+            page = _pick_page(pages, query)
             if not page:
                 continue
-            url = _thumbnail(page)
+            # Быстрый путь: превью уже в результатах поиска.
+            url = _thumb_from_search(page)
+            if not url:
+                # Медленный путь: точный ключ статьи и summary-эндпоинт.
+                key = str(page.get("key") or "")
+                if key:
+                    url = _summary_thumb(lang, key, cfg)
             if url:
                 return ImageResult(url=url, title=str(page.get("title", "")), lang=lang)
     return ImageResult()
@@ -127,10 +253,15 @@ def find_images(wiki_title: str, extra_titles: list[str], cfg: Config) -> list[s
                 break
             if not query:
                 continue
-            page = _search(lang, query, cfg)
+            pages = _search(lang, query, cfg)
+            page = _pick_page(pages, query)
             if not page:
                 continue
-            url = _thumbnail(page)
+            url = _thumb_from_search(page)
+            if not url:
+                key = str(page.get("key") or "")
+                if key:
+                    url = _summary_thumb(lang, key, cfg)
             if url and url not in urls:
                 urls.append(url)
     return urls

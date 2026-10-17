@@ -22,7 +22,8 @@ from kino.state import State, StateLock, load_state, record_choice, save_state
 logger = logging.getLogger(__name__)
 
 # Вариации поста: photo — фото с подписью, link — пост-ссылка с превью,
-# article — статья Telegraph, text — текст без картинки,
+# article — статья на graph.org, уходит постом-ссылкой на неё, text — текст
+# без картинки,
 # poll — опрос, gallery — карусель фото.
 _VARIATIONS = ("photo", "link", "article", "text", "poll", "gallery")
 
@@ -143,7 +144,7 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
             if link_url:
                 kind = "link"  # статья уходит постом-ссылкой с превью
             else:
-                kind = "photo"  # telegraph недоступен — фолбэк на фото
+                kind = "photo"  # статьйник недоступен — фолбэк на фото
         if kind == "gallery":
             extra_images = find_images(
                 wiki_title,
@@ -212,11 +213,11 @@ def _build_poll(draft_data: dict) -> tuple[str, list[str]]:
 
 
 def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choice) -> str:
-    """Создаёт страницу Telegraph из черновика. Ошибка → '' (фолбэк на фото)."""
+    """Создаёт страницу статьи (graph.org). Ошибка → '' (фолбэк на фото)."""
     try:
-        from kino.telegraph import TelegraphError, create_page, load_token
+        from kino.article import ArticleError, create_page, load_token
 
-        token = load_token(cfg.state_path.parent / "telegraph_token.txt")
+        token = load_token(cfg.state_path.parent / "graph_token.txt")
         title = str(draft_data.get("headline", "")).strip() or "Кино за 5 минут"
         body_parts = [
             str(draft_data.get("text", "")).strip(),
@@ -233,8 +234,8 @@ def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choi
             image_url=image_url,
             source_url=choice.item.link,
         )
-    except TelegraphError as exc:
-        logger.warning("telegraph недоступен: %s — фолбэк на фото", exc)
+    except ArticleError as exc:
+        logger.warning("статья недоступна: %s — фолбэк на фото", exc)
         return ""
     except Exception as exc:  # noqa: BLE001 — статья не должна ронять пост
         logger.warning("ошибка статьи: %s — фолбэк на фото", exc.__class__.__name__)

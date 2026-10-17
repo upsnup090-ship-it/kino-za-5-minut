@@ -26,25 +26,19 @@ sources:
     url: https://www.reddit.com/r/boxoffice/top/.rss?t=day
   - name: Reddit/letterboxd
     url: https://www.reddit.com/r/letterboxd/top/.rss?t=day
-  - name: YT/IGN
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw
-  - name: YT/SonyPicturesTV
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCghNDC2eT10D3TsiB2ooWow
-  - name: YT/A24
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCuPivVjnfNo4mb3Oog_frZg
-  - name: YT/Netflix
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCWOA1ZGywLbqmigxE4Qlvuw
-  - name: YT/Universal
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCq0OueAsdxH6b8nyAspwViw
-  - name: YT/Paramount
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCF9imwPMSGz4Vq1NiTWCC7g
-  - name: YT/SonyPictures
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCz97F7dMxBNOfGYu3rx8aCw
-  - name: YT/Lionsgate
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCJ6nMHaJPZvsJ-HmUmj1SeA
-  - name: YT/RottenTomatoes
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCE0Wkd9Jcn2-TNo5G8bLQrA
-  - name: YT/ScreenRant
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UC2iUwfYi_1FCGGqhOUNx-iA
-  - name: YT/Variety
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCgRQHK8Ttr1j9xCEpCAlgbQ
+  # Азия и Россия вместо YouTube (его фиды отдавали SSLError/ReadTimeout,
+  # а сам RuTube закрыл RSS — 404 на всех путях).
+  - name: THR/Asia
+    url: https://www.hollywoodreporter.com/t/asia/feed/
+  - name: SCMP/Culture
+    url: https://www.scmp.com/rss/4/feed
+  - name: JapanTimes/Culture
+    url: https://www.japantimes.co.jp/feed/
+  - name: CNA/Entertainment
+    url: https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416
+  - name: Yonhap/Entertainment
+    url: https://www.yna.co.kr/rss/entertainment.xml
+  - name: InterMedia
+    url: https://www.intermedia.ru/rss/news
+  - name: Film.ru
+    url: https://www.film.ru/rss.xml

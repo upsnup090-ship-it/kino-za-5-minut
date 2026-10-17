@@ -1,8 +1,12 @@
-"""Статьи Telegraph: страница, которая в Telegram открывается как Instant View.
+"""Статьи для Telegram: страница, которая открывается как Instant View.
 
-Сеть: только api.telegra.ph (разрешено пользователем).
-Токен: TELEGRAPH_TOKEN из окружения; если нет — createAccount и сохранение
-токена в data/telegraph_token.json (атомарно).
+Сервис — graph.org (api.graph.org). Это тот же протокол, что у telegra.ph:
+createAccount / createPage, узлы Node в JSON, публичная страница отдаёт
+Instant View в Telegram. Домен другой — api.telegra.ph из этой сети
+недоступен (ConnectTimeout), api.graph.org отвечает штатно.
+
+Токен: GRAPH_TOKEN из окружения; если нет — createAccount и сохранение
+токена в data/graph_token.txt (атомарно).
 """
 
 from __future__ import annotations
@@ -20,19 +24,21 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-API_BASE = "https://api.telegra.ph"
+API_BASE = "https://api.graph.org"
 TIMEOUT = 30
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = 2.0
 
 
 def _proxy_config() -> dict | None:
-    """Прокси для Telegraph: TELEGRAPH_PROXY_URL, иначе LLM_PROXY_URL/PROXY_URL.
+    """Прокси для graph.org: GRAPH_PROXY_URL, иначе LLM_PROXY_URL/PROXY_URL.
 
-    api.telegra.ph напрямую из этой сети недоступен (ConnectTimeout), через
-    прокси отвечает штатно."""
+    api.graph.org, как и api.telegra.ph, напрямую из этой сети не отвечает
+    (ConnectTimeout), через прокси работает штатно.
+    """
     url = (
-        os.environ.get("TELEGRAPH_PROXY_URL", "").strip()
+        os.environ.get("GRAPH_PROXY_URL", "").strip()
+        or os.environ.get("TELEGRAPH_PROXY_URL", "").strip()
         or os.environ.get("LLM_PROXY_URL", "").strip()
         or os.environ.get("PROXY_URL", "").strip()
     )
@@ -41,16 +47,17 @@ def _proxy_config() -> dict | None:
     return {"http": url, "https": url}
 
 
-class TelegraphError(Exception):
-    """Ошибка Telegraph API."""
+class ArticleError(Exception):
+    """Ошибка сервиса статей."""
 
 
 def _post(method: str, payload: dict) -> dict:
-    """POST к Telegraph API с повторами.
+    """POST к API статей с повторами.
 
     Прокси отвечает через раз (ConnectTimeout/ReadTimeout примерно на каждом
     третьем запросе), поэтому сетевые сбои повторяем — иначе статья теряется
-    из-за одного неудачного соединения. HTTP-ошибки API не повторяем."""
+    из-за одного неудачного соединения. HTTP-ошибки API не повторяем.
+    """
     url = f"{API_BASE}/{method}"
     proxies = _proxy_config()
     last_error: Exception | None = None
@@ -64,24 +71,24 @@ def _post(method: str, payload: dict) -> dict:
             if attempt < RETRY_ATTEMPTS - 1:
                 delay = RETRY_BACKOFF * (attempt + 1)
                 logger.warning(
-                    "telegraph %s: %s, повтор через %.1fс (%d/%d)",
+                    "article %s: %s, повтор через %.1fс (%d/%d)",
                     method, exc.__class__.__name__, delay, attempt + 1, RETRY_ATTEMPTS,
                 )
                 time.sleep(delay)
             continue
         except (requests.RequestException, ValueError) as exc:
-            raise TelegraphError(f"telegraph {method}: {exc.__class__.__name__}") from exc
+            raise ArticleError(f"article {method}: {exc.__class__.__name__}") from exc
 
         if not data.get("ok"):
-            raise TelegraphError(f"telegraph {method}: {data.get('error', 'unknown error')}")
+            raise ArticleError(f"article {method}: {data.get('error', 'unknown error')}")
         return data.get("result") or {}
 
-    raise TelegraphError(f"telegraph {method}: {last_error.__class__.__name__}") from last_error
+    raise ArticleError(f"article {method}: {last_error.__class__.__name__}") from last_error
 
 
 def load_token(state_path: Path) -> str:
-    """Токен из TELEGRAPH_TOKEN, иначе из файла, иначе createAccount."""
-    token = os.environ.get("TELEGRAPH_TOKEN", "").strip()
+    """Токен из GRAPH_TOKEN, иначе из файла, иначе createAccount."""
+    token = os.environ.get("GRAPH_TOKEN", "").strip()
     if token:
         return token
     try:
@@ -99,18 +106,18 @@ def load_token(state_path: Path) -> str:
     )
     token = str(result.get("access_token", ""))
     if not token:
-        raise TelegraphError("createAccount не вернул access_token")
+        raise ArticleError("createAccount не вернул access_token")
     state_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(state_path.parent), text=True)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
     os.replace(tmp, state_path)
-    logger.info("telegraph: создан новый аккаунт, токен сохранён")
+    logger.info("article: создан новый аккаунт, токен сохранён")
     return token
 
 
 def _text_to_nodes(text: str) -> list[dict]:
-    """Текст → узлы Telegraph: абзацы, пустая строка = перенос блока."""
+    """Текст → узлы статьи: абзацы, пустая строка = перенос блока."""
     nodes: list[dict] = []
     for block in html.unescape(text).split("\n"):
         block = block.strip()
@@ -118,7 +125,6 @@ def _text_to_nodes(text: str) -> list[dict]:
             continue
         nodes.append({"tag": "p", "children": [block]})
     return nodes or [{"tag": "p", "children": [""]}]
-
 
 
 def create_page(
@@ -130,8 +136,8 @@ def create_page(
 ) -> str:
     """Создаёт страницу, возвращает её URL.
 
-    body — текст статьи (HTML-экранирование внутри не нужно, Telegraph
-    принимает чистый текст в children).
+    body — текст статьи (HTML-экранирование внутри не нужно, сервис принимает
+    чистый текст в children).
     """
     nodes: list[dict] = []
     if image_url:
@@ -163,5 +169,5 @@ def create_page(
     )
     url = str(result.get("url", ""))
     if not url:
-        raise TelegraphError("createPage не вернул url")
+        raise ArticleError("createPage не вернул url")
     return url
