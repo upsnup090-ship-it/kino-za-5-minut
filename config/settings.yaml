@@ -17,7 +17,9 @@ choose:
 llm:
   draft:
     temperature: 0.75
-    max_tokens: 2048
+    # glm-5.3-flash — reasoning-модель: до ~2.5k токенов уходит в reasoning_content
+    # до того, как начнётся JSON. На 2048 черновик обрезался на середине поля.
+    max_tokens: 4096
     top_p: 0.9
   judge:
     temperature: 0.1

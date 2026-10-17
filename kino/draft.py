@@ -115,5 +115,15 @@ def draft(choice: Choice, cfg: Config) -> dict:
     choices = data.get("choices") or []
     if not choices:
         raise DraftError("LLM вернул пустой ответ")
-    content = str(choices[0].get("message", {}).get("content", ""))
+    choice0 = choices[0]
+    if choice0.get("finish_reason") == "length":
+        # Reasoning-модель (glm-5.3-flash) тратит бюджет на reasoning_content и
+        # обрывает JSON. Спасатель полей сработает, но текст будет неполным —
+        # лучше сказать об этом прямо, чем тихо отдать половину поста.
+        logger.warning(
+            "черновик обрезан по max_tokens (%d): reasoning-модель съела бюджет, "
+            "подними llm.draft.max_tokens",
+            cfg.settings.draft_max_tokens,
+        )
+    content = str(choice0.get("message", {}).get("content", ""))
     return parse_draft(content)
