@@ -5,7 +5,8 @@ collect:
   freshness_days: 48
   top_n: 25
   allow_stale_fallback: true
-  user_agent: "KinoZa5Minut/1.0"
+  # Reddit и ряд сайтов блокируют ботов по User-Agent — нужен браузерный.
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
   max_workers: 6
 
 choose:
@@ -24,8 +25,8 @@ llm:
   timeout_seconds: 60
 
 models:
-  draft: "gpt-4o-mini"
-  judge: "gpt-4o-mini"
+  draft: "openai/gpt-4o-mini"
+  judge: "openai/gpt-4o-mini"
 
 wiki:
   timeout_seconds: 15
