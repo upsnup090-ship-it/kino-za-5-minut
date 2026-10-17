@@ -14,16 +14,17 @@ from kino.collect import collect
 from kino.config import Config
 from kino.draft import draft
 from kino.horizon import HorizonError, collect_horizon
-from kino.image import find_image
+from kino.image import find_image, find_images
 from kino.judge import judge
 from kino.publish import publish
 from kino.state import State, StateLock, load_state, record_choice, save_state
 
 logger = logging.getLogger(__name__)
 
-# Вариации поста: photo — фото с подписью, link — пост-ссылка с превью
-# (в т.ч. YouTube-видео), article — статья Telegraph + пост-ссылка на неё.
-_VARIATIONS = ("photo", "link", "article")
+# Вариации поста: photo — фото с подписью, link — пост-ссылка с превью,
+# article — статья Telegraph, text — текст без картинки,
+# poll — опрос, gallery — карусель фото.
+_VARIATIONS = ("photo", "link", "article", "text", "poll", "gallery")
 
 
 def pick_variation(
@@ -40,7 +41,7 @@ def pick_variation(
     weights_raw = getattr(cfg.settings, "post_variations", {}) or {}
     weights = [max(0, int(weights_raw.get(v, 0))) for v in _VARIATIONS]
     if not any(weights):
-        weights = [1, 0, 0]  # не настроено — только фото, как раньше
+        weights = [1, 0, 0, 0, 0, 0]  # не настроено — только фото, как раньше
     kind = random.choices(_VARIATIONS, weights=weights, k=1)[0]
 
     if kind == "link":
@@ -126,20 +127,37 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         kind, link_url = pick_variation(cfg, final_data, image.url, choice)
         logger.info("вариация поста: %s", kind)
         published = False
+        extra_images: list[str] = []
+        poll_q, poll_opts = "", []
         if kind == "article":
             link_url = _publish_article(cfg, final_data, image.url, choice)
             if link_url:
                 kind = "link"  # статья уходит постом-ссылкой с превью
             else:
                 kind = "photo"  # telegraph недоступен — фолбэк на фото
+        if kind == "gallery":
+            extra_images = find_images(
+                wiki_title,
+                [str(final_data.get("film", "")), str(final_data.get("director", ""))],
+                cfg,
+            )
+            if len(extra_images) < 2:
+                kind = "photo"  # не нашли 2+ картинок — фолбэк
+        if kind == "poll":
+            poll_q, poll_opts = _build_poll(final_data)
+            if not poll_q:
+                kind = "photo"  # нет вопроса — фолбэк
         if not dry_run:
             published = publish(
                 cfg,
                 caption,
-                image.url,
+                image.url if kind != "text" else "",
                 dry_run=False,
                 kind=kind,
                 link_url=link_url,
+                extra_images=extra_images if kind == "gallery" else None,
+                poll_question=poll_q if kind == "poll" else "",
+                poll_options=poll_opts if kind == "poll" else None,
             )
             if published:
                 record_choice(
@@ -165,6 +183,23 @@ def run(cfg: Config, dry_run: bool = True) -> RunResult:
         )
     finally:
         lock.release()
+
+
+def _build_poll(draft_data: dict) -> tuple[str, list[str]]:
+    """Вопрос и варианты для опроса из черновика.
+
+    Если LLM вернул poll_options — берём их, иначе нейтральный набор.
+    """
+    question = str(draft_data.get("question", "")).strip()
+    if not question:
+        return "", []
+    raw = draft_data.get("poll_options")
+    options: list[str] = []
+    if isinstance(raw, list):
+        options = [str(o).strip() for o in raw if str(o).strip()]
+    if len(options) < 2:
+        options = ["Да, конечно", "Нет", "Посмотрим", "Свой вариант в комментариях"]
+    return question[:300], options[:6]
 
 
 def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choice) -> str:

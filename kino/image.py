@@ -60,3 +60,27 @@ def find_image(wiki_title: str, cfg: Config) -> ImageResult:
         if url:
             return ImageResult(url=url, title=str(page.get("title", "")), lang=lang)
     return ImageResult()
+
+
+def find_images(wiki_title: str, extra_titles: list[str], cfg: Config) -> list[str]:
+    """До 4 уникальных картинок: основная тема (ru+en) + связанные темы.
+
+    Используется для вариации gallery (карусель).
+    """
+    urls: list[str] = []
+    queries = [wiki_title] + [t for t in extra_titles if t]
+    for query in queries:
+        if len(urls) >= 4:
+            break
+        for lang in ("ru", "en"):
+            if len(urls) >= 4:
+                break
+            if not query:
+                continue
+            page = _search(lang, query, cfg)
+            if not page:
+                continue
+            url = _thumbnail(page)
+            if url and url not in urls:
+                urls.append(url)
+    return urls

@@ -44,9 +44,12 @@ horizon:
 # photo — фото с подписью; link — пост-ссылка с превью новости/видео;
 # article — статья Telegraph, уходит постом-ссылкой на неё.
 post_variations:
-  photo: 50
-  link: 30
-  article: 20
+  photo: 35
+  link: 20
+  article: 10
+  text: 15
+  poll: 10
+  gallery: 10
 
 retry:
   max_attempts: 5      # Максимум попыток при 429/сетевых ошибках

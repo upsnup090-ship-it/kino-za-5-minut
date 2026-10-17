@@ -188,6 +188,25 @@ def send_media_group(
     return _send_with_retry(cfg, "sendMediaGroup", payload)
 
 
+def send_poll(
+    cfg: Config,
+    chat_id: str,
+    question: str,
+    options: list[str],
+) -> bool:
+    """Опрос в канале. Боты умеют sendPoll в каналах; анонимное голосование."""
+    opts = [o for o in (x.strip() for x in options) if o][:10]
+    if len(opts) < 2:
+        return False
+    payload = {
+        "chat_id": chat_id,
+        "question": question[:300],
+        "options": json.dumps(opts, ensure_ascii=False),
+        "is_anonymous": True,
+    }
+    return _send_with_retry(cfg, "sendPoll", payload)
+
+
 def notify_admin(cfg: Config, text: str) -> None:
     """Короткое сообщение админу. Без токенов и ключей."""
     if not cfg.admin_chat_id:
@@ -211,8 +230,10 @@ def publish(
     kind: str = "photo",
     link_url: str = "",
     extra_images: list[str] | None = None,
+    poll_question: str = "",
+    poll_options: list[str] | None = None,
 ) -> bool:
-    """Публикация выбранной вариацией: photo | link | gallery | text.
+    """Публикация выбранной вариацией: photo | link | gallery | text | poll.
 
     Порядок фолбэков: выбранная вариация → фото → текст → ЛС админу.
     """
@@ -229,6 +250,8 @@ def publish(
     elif kind == "gallery":
         urls = [image_url] + list(extra_images or [])
         sent = send_media_group(cfg, chat, urls, caption)
+    elif kind == "poll":
+        sent = send_poll(cfg, chat, poll_question, poll_options)
     elif kind == "link" and not link_url:
         logger.warning("вариация link без link_url — фолбэк на фото")
 
