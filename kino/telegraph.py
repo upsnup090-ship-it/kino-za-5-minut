@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,6 +22,23 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.telegra.ph"
 TIMEOUT = 30
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF = 2.0
+
+
+def _proxy_config() -> dict | None:
+    """Прокси для Telegraph: TELEGRAPH_PROXY_URL, иначе LLM_PROXY_URL/PROXY_URL.
+
+    api.telegra.ph напрямую из этой сети недоступен (ConnectTimeout), через
+    прокси отвечает штатно."""
+    url = (
+        os.environ.get("TELEGRAPH_PROXY_URL", "").strip()
+        or os.environ.get("LLM_PROXY_URL", "").strip()
+        or os.environ.get("PROXY_URL", "").strip()
+    )
+    if not url:
+        return None
+    return {"http": url, "https": url}
 
 
 class TelegraphError(Exception):
@@ -28,15 +46,37 @@ class TelegraphError(Exception):
 
 
 def _post(method: str, payload: dict) -> dict:
-    try:
-        response = requests.post(f"{API_BASE}/{method}", data=payload, timeout=TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        raise TelegraphError(f"telegraph {method}: {exc.__class__.__name__}") from exc
-    if not data.get("ok"):
-        raise TelegraphError(f"telegraph {method}: {data.get('error', 'unknown error')}")
-    return data.get("result") or {}
+    """POST к Telegraph API с повторами.
+
+    Прокси отвечает через раз (ConnectTimeout/ReadTimeout примерно на каждом
+    третьем запросе), поэтому сетевые сбои повторяем — иначе статья теряется
+    из-за одного неудачного соединения. HTTP-ошибки API не повторяем."""
+    url = f"{API_BASE}/{method}"
+    proxies = _proxy_config()
+    last_error: Exception | None = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            response = requests.post(url, data=payload, timeout=TIMEOUT, proxies=proxies)
+            response.raise_for_status()
+            data = response.json()
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error = exc
+            if attempt < RETRY_ATTEMPTS - 1:
+                delay = RETRY_BACKOFF * (attempt + 1)
+                logger.warning(
+                    "telegraph %s: %s, повтор через %.1fс (%d/%d)",
+                    method, exc.__class__.__name__, delay, attempt + 1, RETRY_ATTEMPTS,
+                )
+                time.sleep(delay)
+            continue
+        except (requests.RequestException, ValueError) as exc:
+            raise TelegraphError(f"telegraph {method}: {exc.__class__.__name__}") from exc
+
+        if not data.get("ok"):
+            raise TelegraphError(f"telegraph {method}: {data.get('error', 'unknown error')}")
+        return data.get("result") or {}
+
+    raise TelegraphError(f"telegraph {method}: {last_error.__class__.__name__}") from last_error
 
 
 def load_token(state_path: Path) -> str:
