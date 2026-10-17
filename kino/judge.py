@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import requests
 
@@ -22,6 +23,118 @@ def _notify_fallback(cfg: Config, reason: str) -> None:
         notify_admin(cfg, f"judge fallback: {reason}")
     except Exception:  # noqa: BLE001 — уведомление не должно ронять пайплайн
         pass
+
+
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.DOTALL)
+
+
+def _strip_fences(text: str) -> str:
+    """Убирает markdown-ограждение ```json ... ```, если модель его добавила."""
+    match = _FENCE_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
+def _balanced_object(text: str, start: int) -> str | None:
+    """Возвращает подстроку от '{' до парной '}', корректно считая вложенность
+    и пропуская фигурные скобки внутри строк."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _escape_control_chars(blob: str) -> str:
+    """Экранирует сырые переводы строк/табы внутри JSON-строк.
+
+    Модели иногда вставляют настоящий \\n внутрь значения вместо \\n-эскейпа —
+    json.loads на таком падает со 'Invalid control character'."""
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in blob:
+        if in_string:
+            if escaped:
+                escaped = False
+                out.append(ch)
+                continue
+            if ch == "\\":
+                escaped = True
+                out.append(ch)
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            if ch == "\t":
+                out.append("\\t")
+                continue
+            out.append(ch)
+            continue
+        if ch == '"':
+            in_string = True
+        out.append(ch)
+    return "".join(out)
+
+
+def parse_judge_json(content: str) -> dict:
+    """Достаёт JSON-объект из ответа модели.
+
+    Стратегии по порядку: markdown-фенсы, первый сбалансированный объект,
+    экранирование управляющих символов внутри строк. Бросает ValueError,
+    если ни одна не сработала — вызывающий сделает фолбэк."""
+    text = _strip_fences(content)
+    if not text:
+        raise ValueError("пустой ответ судьи")
+
+    candidates: list[str] = []
+    start = text.find("{")
+    if start >= 0:
+        balanced = _balanced_object(text, start)
+        if balanced:
+            candidates.append(balanced)
+        end = text.rfind("}")
+        if end > start:
+            candidates.append(text[start : end + 1])
+
+    last_error: Exception | None = None
+    for blob in candidates:
+        for attempt in (blob, _escape_control_chars(blob)):
+            try:
+                parsed = json.loads(attempt)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    if last_error is not None:
+        raise ValueError(f"не удалось разобрать JSON судьи: {last_error}") from last_error
+    raise ValueError("в ответе судьи нет JSON")
 
 
 def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
@@ -73,11 +186,11 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         if not choices:
             raise ValueError("пустой ответ судьи")
         content = str(choices[0].get("message", {}).get("content", ""))
-        start = content.find("{")
-        end = content.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("в ответе судьи нет JSON")
-        parsed = json.loads(content[start : end + 1])
+        try:
+            parsed = parse_judge_json(content)
+        except ValueError as exc:
+            logger.warning("судья вернул неразбираемый ответ (%s): %s", exc, content[:200])
+            raise
         if parsed.get("text"):
             draft_data["text"] = parsed["text"]
         if parsed.get("headline"):
