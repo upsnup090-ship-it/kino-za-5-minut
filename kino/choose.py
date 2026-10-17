@@ -29,6 +29,20 @@ _MOVIE_TERMS = {
     "режиссер", "смотреть", "посмотреть", "хочу", "трейлер", "новости кино",
     "рекомендуют", "обзор", "рецензия", "показ", "кинотеатр", "film",
     "movie", "reviews", "rating", "critic",
+    # Расширение: одного film/movie в заголовке часто нет, а материал киношный.
+    # Рецензии, документалки, сериалы, роли, фестивали, студии.
+    "review", "reviewed", "documentary", "doc", "series", "season", "episode",
+    "trailer", "teaser", "remake", "reboot", "sequel", "prequel", "cast",
+    "casting", "actor", "actress", "director", "filmmaker", "screenwriter",
+    "studio", "box office", "festival", "premiere", "screening", "debut",
+    "role", "character", "franchise", "scene", "cinematography", "oscars",
+    "academy", "emmy", "golden globe", "cannes", "venice", "sundance",
+    "bafta", "anime", "animation", "screenplay", "plot", "starring",
+    "рецензия", "документальный", "документалка", "сериал", "сезон", "эпизод",
+    "роль", "персонаж", "кастинг", "сценарий", "студия", "фестиваль",
+    "показ", "дебют", "экранизация", "сиквел", "ремейк", "перезапуск",
+    "кинопрокат", "прокат", "сборы", "дубляж", "озвучка", "оператор",
+    "награда", "премия", "номинация", "анимация", "аниме",
 }
 
 _POSITIVE_WORDS = {
@@ -78,8 +92,8 @@ def _relevance_score(item: FeedItem) -> int:
         pattern = _word_boundary_pattern(word)
         if pattern.search(text):
             score -= 2
-    if len(item.snippet) > 100:
-        score += 1
+    # Бонус за длинный snippet намеренно не начисляется: длина текста не
+    # признак киношности, а при низком пороге он вытягивал в выдачу мусор.
     return score
 
 
@@ -135,10 +149,11 @@ def choose(
 
     relevant = []
     for item in allowed:
-        # Порог 2: одного «случайного» балла мало (например, бонус за длинный
-        # snippet сам по себе допускал не-киношные SEO-заметки вроде
-        # «watch ... football game free streams»).
-        if _relevance_score(item) < 2:
+        # Порог 1: одно уверенное киношное слово уже делает материал годным.
+        # Порог 2 резал почти всю выдачу (рецензии и документалки без слова
+        # film/movie в заголовке), из-за чего пайплайн уходил в фолбэк и
+        # публиковал дубль. Спортивные SEO-заметки ловит bad-фильтр выше.
+        if _relevance_score(item) < 1:
             continue
         relevant.append(item)
 
