@@ -5,3 +5,4 @@ __pycache__/
 venv/
 data/*.json
 data/*.lock
+data/*.txt
