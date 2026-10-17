@@ -41,6 +41,9 @@ def build_prompt(choice: Choice, cfg: Config) -> dict:
         "temperature": cfg.settings.draft_temperature,
         "max_tokens": cfg.settings.draft_max_tokens,
         "top_p": cfg.settings.draft_top_p,
+        # APIMart отдаёт SSE по умолчанию даже без stream:true — явный false
+        # нужен, чтобы получить обычный JSON и не упасть на response.json().
+        "stream": False,
     }
 
 

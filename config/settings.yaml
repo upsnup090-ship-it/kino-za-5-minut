@@ -25,6 +25,13 @@ llm:
   timeout_seconds: 60
 
 providers:
+  apimart:
+    base_url: "https://api.apimart.ai/v1"
+    api_key: "${APIMART_API_KEY}"
+    # Из таблицы APIMart: самые дешёвые чат-модели с оценкой 3/3.
+    # glm-5.3-flash $0.06/$0.20 — черновик; deepseek-v4-flash $0.1714/$0.5143 — судья.
+    draft_model: "glm-5.3-flash"
+    judge_model: "deepseek-v4-flash"
   gemini:
     base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
     api_key: "${GEMINI_API_KEY}"

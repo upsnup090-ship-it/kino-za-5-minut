@@ -107,12 +107,36 @@ def _optional_env(name: str) -> str:
     return value
 
 
+def _env_is_set(name: str) -> bool:
+    """Переменная присутствует в окружении (в т.ч. пустой строкой).
+
+    Нужна там, где пустое значение — это явный выбор «выключено», а не
+    «не задано»: так LLM_PROXY_URL= отключает фолбэк на PROXY_URL.
+    """
+    return name in os.environ
+
+
+def _resolve_llm_proxy() -> str | None:
+    """Прокси для LLM-запросов.
+
+    LLM_PROXY_URL задан непустым — используем его. LLM_PROXY_URL задан пустым —
+    LLM идёт напрямую (явное отключение). Не задан вовсе — фолбэк на PROXY_URL.
+    """
+    if _env_is_set("LLM_PROXY_URL"):
+        return _optional_env("LLM_PROXY_URL") or None
+    return _optional_env("PROXY_URL") or None
+
+
 def load_config(env_file: str | None = None) -> Config:
-    # Порядок: сначала .env, затем .env.test (перекрывает). Явный env_file — приоритетнее.
-    load_dotenv(ROOT / ".env")
-    load_dotenv(ROOT / ".env.test", override=True)
+    # Без явного env_file: .env, затем .env.test (перекрывает).
+    # С явным env_file он единственный источник — иначе тесты и альтернативные
+    # окружения не изолируются от боевого .env.test.
     if env_file:
+        os.environ.setdefault("ENV_FILE", str(env_file))
         load_dotenv(env_file, override=True)
+    else:
+        load_dotenv(ROOT / ".env")
+        load_dotenv(ROOT / ".env.test", override=True)
 
     sources_raw = _load_yaml(CONFIG_DIR / "sources.yaml").get("sources", [])
     sources = []
@@ -251,7 +275,7 @@ def load_config(env_file: str | None = None) -> Config:
         channel_chat_id=_optional_env("CHANNEL_CHAT_ID"),
         admin_chat_id=_optional_env("ADMIN_CHAT_ID"),
         proxy_url=_optional_env("PROXY_URL") or None,
-        llm_proxy_url=_optional_env("LLM_PROXY_URL") or _optional_env("PROXY_URL") or None,
+        llm_proxy_url=_resolve_llm_proxy(),
         state_path=state_path,
         stats_path=stats_path,
         source_mode=source_mode,

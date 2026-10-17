@@ -64,7 +64,7 @@ def test_parse_draft_no_json_raises():
 def test_draft_returns_parsed_dict(monkeypatch):
     cfg = _make_config()
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, proxies=None):
         return _ok_response('{"headline": "Шапка", "text": "Текст", "question": "Вопрос?"}')
 
     monkeypatch.setattr(requests, "post", fake_post)
@@ -76,7 +76,7 @@ def test_draft_returns_parsed_dict(monkeypatch):
 def test_draft_model_not_found_raises(monkeypatch):
     cfg = _make_config()
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, proxies=None):
         resp = requests.Response()
         resp.status_code = 400
         resp._content = b'{"error": "model_not_found"}'
@@ -90,7 +90,7 @@ def test_draft_model_not_found_raises(monkeypatch):
 def test_draft_401_raises(monkeypatch):
     cfg = _make_config()
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, proxies=None):
         resp = requests.Response()
         resp.status_code = 401
         resp._content = b'{"error": "unauthorized"}'
@@ -104,7 +104,7 @@ def test_draft_401_raises(monkeypatch):
 def test_draft_network_error_raises(monkeypatch):
     cfg = _make_config()
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, proxies=None):
         raise requests.ConnectionError("boom")
 
     monkeypatch.setattr(requests, "post", fake_post)

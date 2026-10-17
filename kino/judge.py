@@ -58,6 +58,9 @@ def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         ],
         "temperature": cfg.settings.judge_temperature,
         "max_tokens": cfg.settings.judge_max_tokens,
+        # APIMart отдаёт SSE по умолчанию даже без stream:true — явный false
+        # нужен, чтобы получить обычный JSON и не упасть на response.json().
+        "stream": False,
     }
 
 
