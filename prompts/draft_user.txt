@@ -1,0 +1,8 @@
+Формат поста: {format}
+Источник: {source}
+Заголовок новости: {title}
+Описание: {snippet}
+
+Напиши пост для канала в чистом журналистском стиле. Верни JSON с полями:
+headline, text, key_moment, question, hashtags, film, director, cast,
+release, studio, wiki.

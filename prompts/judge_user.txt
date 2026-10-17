@@ -1,0 +1,10 @@
+Источник: {source}
+Заголовок новости: {title}
+Описание: {snippet}
+
+Черновик поста:
+{draft}
+
+Проверь черновик. Верни JSON с полями:
+verdict, headline, text, key_moment, question, hashtags, film, director,
+cast, release, studio, wiki, confidence.

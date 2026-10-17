@@ -9,6 +9,7 @@ import requests
 
 from kino.choose import Choice
 from kino.config import Config
+from kino.prompts import draft_system, draft_user
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +21,12 @@ class DraftError(Exception):
 def build_prompt(choice: Choice, cfg: Config) -> dict:
     """Собирает тело запроса к LLM для черновика."""
     item = choice.item
-    system = (
-        "Ты — редактор русскоязычного Telegram-канала о кино. "
-        "Отвечай одним JSON-объектом без markdown."
-    )
-    user = (
-        f"Формат: {choice.format}\n"
-        f"Источник: {item.source}\n"
-        f"Заголовок: {item.title}\n"
-        f"Описание: {item.snippet}\n"
-        "Верни JSON: headline, text, question, film, director, cast, release, studio, wiki."
+    system = draft_system()
+    user = draft_user(
+        format=choice.format,
+        source=item.source,
+        title=item.title,
+        snippet=item.snippet,
     )
     return {
         "model": cfg.draft_model,

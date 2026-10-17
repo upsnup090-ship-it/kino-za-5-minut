@@ -9,6 +9,7 @@ import requests
 
 from kino.choose import Choice
 from kino.config import Config
+from kino.prompts import judge_system, judge_user
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +17,12 @@ logger = logging.getLogger(__name__)
 def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
     """Собирает тело запроса к судье."""
     item = choice.item
-    system = (
-        "Ты — строгий фактчекер и редактор Telegram-канала о кино. "
-        "Работай только с материалом ниже. Верни строго JSON без markdown."
-    )
-    user = (
-        f"Источник: {item.source}\n"
-        f"Заголовок: {item.title}\n"
-        f"Описание: {item.snippet}\n\n"
-        f"Черновик: {json.dumps(draft_data, ensure_ascii=False)}\n\n"
-        "Верни JSON: verdict, headline, polished_text, question, film, director, "
-        "cast, release, studio, wiki, confidence."
+    system = judge_system()
+    user = judge_user(
+        source=item.source,
+        title=item.title,
+        snippet=item.snippet,
+        draft=json.dumps(draft_data, ensure_ascii=False),
     )
     return {
         "model": cfg.judge_model,
@@ -68,10 +64,19 @@ def judge(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         if start < 0 or end <= start:
             raise ValueError("в ответе судьи нет JSON")
         parsed = json.loads(content[start : end + 1])
-        if parsed.get("polished_text"):
-            draft_data["text"] = parsed["polished_text"]
+        if parsed.get("text"):
+            draft_data["text"] = parsed["text"]
         if parsed.get("headline"):
             draft_data["headline"] = parsed["headline"]
+        # Новые поля стиля: переносим только если судья их вернул непустыми.
+        for key in ("key_moment", "hashtags"):
+            value = parsed.get(key)
+            if value not in (None, "", []):
+                draft_data[key] = value
+        for key in ("film", "director", "cast", "release", "studio", "wiki"):
+            value = parsed.get(key)
+            if value not in (None, ""):
+                draft_data[key] = value
         draft_data["verdict"] = parsed.get("verdict", "accept")
         return draft_data
     except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
