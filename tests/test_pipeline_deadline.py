@@ -129,3 +129,52 @@ def test_image_skipped_when_budget_exhausted_before_image(tmp_path, monkeypatch)
         result = run(cfg, dry_run=True, deadline=_expired_deadline(monkeypatch))
     assert result.aborted is True
     mi.assert_not_called()
+
+def test_slow_collect_leaves_full_budget_to_llm(tmp_path):
+    """Долгий сбор (ретраи Reddit) не съедает бюджет черновика и судьи.
+
+    Боевой кейс 18.10: Reddit душил по IP-лимиту, ретраи сбора выгрызали
+    единый бюджет прогона, и LLM-фаза получала «бюджет исчерпан». Теперь
+    сбор живёт в собственном дедлайне, а LLM-фаза получает свежий полный.
+    """
+    import time
+
+    cfg = _cfg(tmp_path)
+    cfg.settings.deadline_seconds = 0.1
+    item = FeedItem(
+        source="test",
+        title="Some movie news",
+        link="http://example.com/1",
+        pub_date="",
+        ts=0.0,
+        snippet="snippet",
+    )
+    captured: dict = {}
+
+    def slow_collect(cfg_arg, *, deadline=None):
+        time.sleep(0.3)  # втрое дольше всего deadline_seconds
+        return SimpleNamespace(items=[item], broken=[], total=1, fresh_count=1)
+
+    def fake_draft(choice, cfg_arg, *, deadline=None):
+        captured["deadline"] = deadline
+        return {"headline": "Шапка", "text": "Текст", "question": "Вопрос?"}
+
+    with patch("kino.pipeline.collect", side_effect=slow_collect), \
+         patch("kino.pipeline.choose") as mock_choose, \
+         patch("kino.pipeline.draft", side_effect=fake_draft), \
+         patch("kino.pipeline.judge") as mock_judge, \
+         patch("kino.pipeline.find_image_multi"), \
+         patch("kino.pipeline.save_state"), \
+         patch("kino.pipeline.StateLock") as mock_lock:
+
+        mock_lock.return_value.acquire.return_value = True
+        mock_choose.return_value = SimpleNamespace(
+            item=item, format="news", quality_score=5, sad_topic=False
+        )
+        mock_judge.return_value = {"headline": "Шапка", "text": "Текст", "question": "Вопрос?"}
+
+        result = run(cfg, dry_run=True)
+
+    assert result.aborted is False
+    assert captured["deadline"] is not None
+    assert not captured["deadline"].expired

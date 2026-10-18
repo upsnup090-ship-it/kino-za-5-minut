@@ -307,10 +307,14 @@ def apply_infographic(choice: Choice, final_data: dict,
 def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) -> RunResult:
     """Полный прогон одного поста.
 
-    Дедлайн ограничивает бюджет времени: если не передан, берётся из конфига
-    (`deadline_seconds`). При исчерпании прогон завершается с `aborted=True`,
-    а публикация готового поста не отменяется — она важнее добивки картинки.
+    Бюджеты времени: сбор живёт в собственном дедлайне (ретраи источников
+    из-за лимитов вроде Reddit-429 не крадут время у LLM-фазы), а черновик →
+    судья → публикация получают свежий полный (`deadline_seconds`). При
+    исчерпании прогон завершается с `aborted=True`, а публикация готового
+    поста не отменяется — она важнее добивки картинки. Явно переданный
+    deadline управляет всем прогоном единым бюджетом (тесты, serve).
     """
+    explicit_deadline = deadline is not None
     if deadline is None:
         deadline = Deadline(cfg.settings.deadline_seconds)
 
@@ -337,18 +341,27 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
 
         if not check(deadline, step="сбор"):
             return _abort("бюджет исчерпан до сбора")
+        # Сбору — собственный бюджет: ретраи Reddit из-за лимитов на IP
+        # (боевой прогон 18.10) не должны съедать время черновика и судьи.
+        collect_deadline = (
+            deadline if explicit_deadline else Deadline(cfg.settings.deadline_seconds)
+        )
         if cfg.source_mode == "horizon":
             collected = collect_horizon(
                 cfg.horizon_dir,
                 cfg.horizon_summaries_dir,
                 run=cfg.horizon_run,
                 hours=cfg.horizon_hours,
-                timeout=deadline.slice(cfg.horizon_timeout),
+                timeout=collect_deadline.slice(cfg.horizon_timeout),
             )
         else:
-            collected = collect(cfg, deadline=deadline)
+            collected = collect(cfg, deadline=collect_deadline)
         if not collected.items:
             return _abort(f"сбор не дал записей (broken={len(collected.broken)})")
+        if not explicit_deadline:
+            # LLM-фазе (черновик → судья → публикация) — свежий полный бюджет,
+            # каким бы долгим ни был сбор.
+            deadline = Deadline(cfg.settings.deadline_seconds)
         choice: Choice = choose(collected.items, cfg, used_links, used_sigs)
         logger.info("тема выбрана: %s | формат: %s",
                     choice.item.title[:80], choice.format)
