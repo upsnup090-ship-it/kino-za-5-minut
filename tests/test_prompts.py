@@ -17,6 +17,8 @@ def test_judge_system_loads_nonempty():
     assert isinstance(text, str)
     assert "verdict" in text
     assert "accept" in text
+    assert "drop_fields" in text
+    assert "review.rating" in text
 
 
 def test_draft_user_renders_placeholders():
