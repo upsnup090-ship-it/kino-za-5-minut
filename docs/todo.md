@@ -30,8 +30,9 @@
 11. Docstring pick_variation (6 маппингов вместо 9) → ЗАКРЫТО (42ef55c).
 12. demo_posts знал только news → ЗАКРЫТО (42ef55c): форматы из cfg.weights,
     apply_infographic, печать формат-полей.
-13. Промпт-система ~12.6 КБ → НАБЛЮДЕНИЕ: следить за обрезкой reasoning
-    (лестница бюджета в draft.py уже до 16384).
+13. Промпт-система ~12.6 КБ → ЗАКРЫТО (refactor+feat prompts): форматы вынесены
+    в prompts/formats/*.txt, draft_system.txt сжат до 6.4 КБ, spec-файлы ≤1.3 КБ,
+    запрос теперь system (~6 КБ) + один spec (~1 КБ) вместо 12.6 КБ целиком.
 14. riddle.answer мог утечь через судью → ЗАКРЫТО (42ef55c): правила 9–11 в
     judge_system; caption не читает answer; тест на утечку.
 
@@ -74,6 +75,15 @@
 24. Windows не имеет базы зон для zoneinfo → бот падал при чтении конфига
     (Europe/Moscow) → tzdata добавлен в requirements (694e1c9), на сервере
     поставлен вручную; с 18:40 прогоны идут.
+
+## Раунд 3: апгрейд 16 форматов (18.10)
+26. Разделить промпт на per-format specs, типизированные поля, drop_fields,
+    LONG_FORMATS → ЗАКРЫТО (коммиты 18.10): 16 spec-файлов prompts/formats/*.txt,
+    9 новых ключей + расширения (fact_source, news{}, quote{}, trailer{}, video{},
+    collage{}, production{}, interview[], opinion{}, facts[].note, announcement
+    extensions, review criteria/audience/similar, comparison verdict, riddle hints),
+    drop_fields у судьи, LONG_FORMATS += collage/comparison/behind_scenes,
+    реестр-тесты + дрифт-защита. pytest: 408 passed.
 
 ## Открыто (только живые проверки, песочница не может)
 - Первый живой пост ОПУБЛИКОВАН 18.10 16:43 (quote, 587 симв.). Осталось:
