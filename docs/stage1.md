@@ -445,7 +445,7 @@ RunResult: caption, image_url, format, published, dry_run,
 | `kino/collect.py` | правка | `collect(cfg, deadline=None)` — попытки по бюджету |
 | `kino/draft.py`, `kino/judge.py` | правка | `slice()` на таймаут, не начинать лестницу без бюджета |
 | `config/settings.yaml` | правка | секции `schedule`, `run`, `logging` |
-| `.env.example` | правка | `TZ`, `LOG_LEVEL` (если нужно переопределить) |
+| `docs/env.example` | правка | `SOURCE_MODE`, `LLM_PROXY_URL`, `STATS_PATH` (TZ/логи — только в settings.yaml) |
 | `tests/test_schedule.py` | **новый** | окна, лимит, пауза, точка 22:50, сброс дня |
 | `tests/test_deadline.py` | **новый** | остаток, истечение, `slice` |
 | `tests/test_state_day.py` | **новый** | новые поля, обратная совместимость |
