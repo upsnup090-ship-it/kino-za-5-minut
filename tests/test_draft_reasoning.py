@@ -25,7 +25,7 @@ def _cfg() -> Config:
         settings=Settings(draft_max_tokens=1500),
         llm_base_url="http://llm.test",
         llm_api_key="k",
-        draft_model="glm-5.3-flash",
+        draft_model="gemini-3.8-flash",
     )
 
 
@@ -100,18 +100,61 @@ def test_budget_ceiling_covers_measured_reasoning():
     assert _BUDGET_CEILING >= 8192
 
 
-def test_truncated_but_started_json_is_salvaged_without_retry(monkeypatch):
-    """JSON начался — спасаем поля, повтор не нужен."""
+def test_truncated_but_started_json_retries_for_full_draft(monkeypatch):
+    """JSON начался, но ответ обрезан — это НЕ готовый черновик.
+
+    Раньше salvage считался успехом и лестница останавливалась: в пост уходили
+    рваные фразы («Вторая причина глуб...»). Теперь обрезка всегда означает
+    повтор с большим бюджетом; спасённый вариант остаётся запасным.
+    """
     calls: list[int] = []
 
     def fake_post(url, json=None, **kw):
         calls.append(json["max_tokens"])
-        return _response('{"headline":"A","text":"B"', "length")
+        if json["max_tokens"] < 3000:
+            return _response('{"headline":"A","text":"B"', "length")
+        return _response('{"headline":"A","text":"B полный"}')
+
+    monkeypatch.setattr("kino.draft.requests.post", fake_post)
+    result = draft(_choice(), _cfg())
+    assert result["text"] == "B полный"
+    assert calls == [1500, 3000]
+
+
+def test_all_budgets_truncated_falls_back_to_salvaged(monkeypatch):
+    """Все ступени обрезаны — отдаём самый полный спасённый вариант, не падаем."""
+    def fake_post(url, json=None, **kw):
+        return _response('{"headline":"A","text":"B обрыв', "length")
 
     monkeypatch.setattr("kino.draft.requests.post", fake_post)
     result = draft(_choice(), _cfg())
     assert result["headline"] == "A"
-    assert len(calls) == 1
+
+
+def test_format_budget_groups():
+    """Бюджет зависит от формата: короткие < средние < длинные."""
+    from kino.draft import format_budget
+
+    base = 4096
+    assert format_budget("facts", base) == 4096
+    assert format_budget("infographic", base) == 6144
+    assert format_budget("opinion", base) == 8192
+    # Неизвестный формат — общий базовый лимит.
+    assert format_budget("unknown_fmt", base) == base
+
+
+def test_draft_uses_format_budget(monkeypatch):
+    """Длинный формат стартует с большего бюджета, чем короткий."""
+    seen: list[int] = []
+
+    def fake_post(url, json=None, **kw):
+        seen.append(json["max_tokens"])
+        return _response('{"headline":"A","text":"B"}')
+
+    monkeypatch.setattr("kino.draft.requests.post", fake_post)
+    item = FeedItem(source="s", title="t", link="l", pub_date="", ts=0, snippet="sn")
+    draft(Choice(item=item, format="opinion", quality_score=0, sad_topic=False), _cfg())
+    assert seen[0] == 8192
 
 
 def test_normal_response_parses(monkeypatch):
@@ -174,13 +217,14 @@ def test_post_chat_gives_up_after_retries():
 
 
 def test_request_draft_returns_error_on_network_failure():
-    """Сетевая ошибка идёт через лестницу (None, error), а не крешом."""
+    """Сетевая ошибка идёт через лестницу (None, error, truncated), а не крешом."""
     from unittest.mock import patch
 
     from kino.draft import DraftError, _request_draft
 
     cfg = _cfg()
     with patch("kino.draft._post_chat", side_effect=DraftError("нет соединения")):
-        parsed, content, error = _request_draft(cfg, {"model": "m"})
+        parsed, content, error, truncated = _request_draft(cfg, {"model": "m"})
     assert parsed is None
     assert "нет соединения" in error
+    assert truncated is False

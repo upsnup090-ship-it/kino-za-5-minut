@@ -36,6 +36,28 @@ class DraftError(Exception):
     """Ошибка генерации черновика."""
 
 
+#: Базовый бюджет черновика по группам форматов. Короткие «выжимки» дают
+#: 2–3 абзаца и один блок, длинные (LONG_FORMATS) — 3–4 абзаца и 5–6 блоков,
+#: средние — между ними. Один общий лимит либо резал длинные, либо зря
+#: раздувал короткие. Неизвестный формат берёт llm.draft.max_tokens.
+_FORMAT_BUDGETS: dict[str, int] = {
+    # короткие: 2-3 абзаца + один блок
+    "facts": 4096, "news": 4096, "when": 4096, "quote": 4096,
+    "poll": 4096, "trailer": 4096, "video": 4096,
+    "announcement": 4096, "riddle": 4096,
+    # средние: 3-5 структурированных элементов
+    "infographic": 6144, "collage": 6144, "comparison": 6144,
+    "behind_scenes": 6144,
+    # длинные: 3-4 абзаца + 5-6 блоков
+    "interview": 8192, "review": 8192, "opinion": 8192,
+}
+
+
+def format_budget(fmt: str, base: int) -> int:
+    """Базовый бюджет черновика для формата. Неизвестный — общий base."""
+    return _FORMAT_BUDGETS.get(fmt, base)
+
+
 def build_prompt(choice: Choice, cfg: Config) -> dict:
     """Собирает тело запроса к LLM для черновика."""
     item = choice.item
@@ -136,11 +158,17 @@ def _raise_for_api_error(cfg: Config, response: requests.Response) -> None:
     raise DraftError(f"LLM вернул {response.status_code}: {detail}")
 
 
-def _request_draft(cfg: Config, body: dict, *, deadline: Deadline | None = None) -> tuple[dict | None, str, str]:
+def _request_draft(
+    cfg: Config, body: dict, *, deadline: Deadline | None = None
+) -> tuple[dict | None, str, str, bool]:
     """Один вызов LLM за черновиком.
 
-    Возвращает (parsed, content, error). Ошибка не бросается: вызывающий решает,
-    повторять ли с большим бюджетом.
+    Возвращает (parsed, content, error, truncated). Ошибка не бросается:
+    вызывающий решает, повторять ли с большим бюджетом.
+
+    truncated=True означает finish_reason="length": ответ оборвался по
+    max_tokens. Даже если salvage что-то вытащил (parsed не None), это
+    НЕ полноценный черновик — вызывающий обязан попробовать больший бюджет.
     """
     try:
         response = _post_chat(cfg, body, deadline=deadline)
@@ -149,7 +177,7 @@ def _request_draft(cfg: Config, body: dict, *, deadline: Deadline | None = None)
         # повтор со следующим бюджетом, в конце — честная ошибка наружу.
         # API-ошибки (401/429/model_not_found) идут мимо лестницы — их повтор
         # с тем же запросом бессмыслен.
-        return None, "", str(exc)
+        return None, "", str(exc), False
     _raise_for_api_error(cfg, response)
 
     try:
@@ -165,33 +193,39 @@ def _request_draft(cfg: Config, body: dict, *, deadline: Deadline | None = None)
     message = choice0.get("message", {}) or {}
     content = str(message.get("content", "") or "")
     reasoning = str(message.get("reasoning_content", "") or "")
+    truncated = finish_reason == "length"
 
-    if finish_reason == "length" and not content.strip():
-        # Reasoning-модель (glm-5.3-flash) израсходовала весь бюджет на
-        # reasoning_content и до JSON не дошла: content пустой, спасать нечего.
+    if truncated and not content.strip():
+        # Модель израсходовала весь бюджет (reasoning-модель — на
+        # reasoning_content) и до JSON не дошла: content пустой, спасать нечего.
         return None, content, (
             f"бюджет съеден reasoning (max_tokens={body.get('max_tokens')}, "
             f"reasoning={len(reasoning)} символов)"
-        )
+        ), True
 
-    if finish_reason == "length":
+    if truncated:
         logger.warning(
-            "черновик обрезан по max_tokens (%s): reasoning-модель съела бюджет",
+            "черновик обрезан по max_tokens (%s) — ответ неполный",
             body.get("max_tokens"),
         )
 
     try:
-        return parse_draft(content), content, ""
+        return parse_draft(content), content, "", truncated
     except DraftError as exc:
-        return None, content, str(exc)
+        return None, content, str(exc), truncated
 
 
 def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> dict:
     """Запрашивает черновик у LLM. Возвращает распарсенный JSON-словарь.
 
-    Reasoning-модель тратит на reasoning от ~1000 до ~2000 токенов, и разброс
-    непредсказуем: фиксированного лимита не хватает. Поэтому при обрезке
-    пробуем ещё раз с увеличенным бюджетом, прежде чем сдаться.
+    Базовый бюджет зависит от формата (_FORMAT_BUDGETS): короткие «выжимки»
+    дешевле, длинные (interview/review/opinion) получают больше токенов.
+
+    Обрезанный по max_tokens ответ (finish_reason="length") НЕ считается
+    готовым черновиком, даже если salvage вытащил часть полей: в таком ответе
+    фразы рвутся посередине («Вторая причина глуб...»). Поэтому лестница
+    повторяет запрос с большим бюджетом, и только если все ступени обрезаны —
+    берётся самый полный спасённый вариант (с предупреждением в лог).
 
     Дедлайн ограничивает таймаут каждого запроса и обрывает лестницу, если
     бюджет на исходе — не начинаем следующий повтор без времени.
@@ -199,23 +233,32 @@ def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> d
     if not cfg.draft_model:
         raise DraftError("DRAFT_MODEL не задан (ни в .env, ни в settings.yaml: models.draft)")
 
-    budgets = _budget_ladder(cfg.settings.draft_max_tokens)
+    base = format_budget(choice.format, cfg.settings.draft_max_tokens)
+    budgets = _budget_ladder(base)
     last_error = ""
+    #: Лучший спасённый результат из обрезанных ответов: (длина content, parsed).
+    best_truncated: tuple[int, dict] | None = None
     for attempt, budget in enumerate(budgets):
-        logger.info("черновик: запрос к %s (попытка %d/%d)",
-                    cfg.draft_model, attempt + 1, len(budgets))
+        logger.info("черновик: запрос к %s, формат %s (попытка %d/%d, max_tokens=%d)",
+                    cfg.draft_model, choice.format, attempt + 1, len(budgets), budget)
         if deadline is not None and deadline.expired:
             raise DraftError(
                 f"бюджет прогона исчерпан на черновике (попытка {attempt + 1}/{len(budgets)})"
             )
         body = build_prompt(choice, cfg)
         body["max_tokens"] = budget
-        parsed, content, error = _request_draft(cfg, body, deadline=deadline)
-        if parsed is not None:
+        parsed, content, error, truncated = _request_draft(cfg, body, deadline=deadline)
+        if parsed is not None and not truncated:
             if attempt:
                 logger.info("черновик получен на попытке %d (max_tokens=%d)", attempt + 1, budget)
             return parsed
-        last_error = error
+        if parsed is not None and truncated:
+            # Ответ оборвался, но часть полей спасена. Запоминаем как запасной
+            # вариант и продолжаем лестницу: целый черновик лучше обрывков.
+            if best_truncated is None or len(content) > best_truncated[0]:
+                best_truncated = (len(content), parsed)
+            error = f"ответ обрезан по max_tokens={budget}"
+        last_error = error or last_error
         if attempt < len(budgets) - 1:
             logger.warning(
                 "черновик не вышел при max_tokens=%d (%s), повтор с %d",
@@ -226,28 +269,38 @@ def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> d
             if deadline is not None and not deadline.expired:
                 time.sleep(_RETRY_DELAY)
 
+    if best_truncated is not None:
+        # Все ступени обрезаны. Отдаём самый полный спасённый вариант, но
+        # громко предупреждаем: в посте могут быть оборванные фразы.
+        logger.warning(
+            "черновик отдан из обрезанного ответа (все ступени упёрлись в лимит): "
+            "возможны рваные фразы, подними llm.draft.max_tokens или бюджет формата %s",
+            choice.format,
+        )
+        return best_truncated[1]
+
     raise DraftError(
         f"черновик не сгенерирован: {last_error}. "
         "Подними llm.draft.max_tokens или возьми не-reasoning модель в DRAFT_MODEL."
     )
 
 
-#: Потолок бюджета: на живом API reasoning занимает 5.9k–10.5k символов
-#: (1859–3210 completion-токенов), поэтому верхняя ступень должна быть
-#: заметно выше базовой, иначе повторы не помогают.
+#: Потолок бюджета. Reasoning-модели (glm-5.3-flash) упирались сюда из-за
+#: скрытых «мыслей» (5.9k–10.5k символов); обычные модели доходят до потолка
+#: только на очень длинных форматах — и это честный признак, что текста много.
 _BUDGET_CEILING = 16384
-#: Ниже этого порога запрос заведомо не даст ни reasoning, ни JSON.
+#: Ниже этого порога запрос заведомо не даст ни JSON, ни reasoning.
 _BUDGET_MIN_USEFUL = 512
 
 
 def _budget_ladder(base: int) -> list[int]:
-    """Лестница бюджетов для повторов: базовый, затем с запасом на reasoning.
+    """Лестница бюджетов для повторов: базовый, затем с запасом.
 
     Возвращает уникальные значения по возрастанию, не больше трёх попыток.
-    Верхняя ступень — не меньше потолка: замеры на живом API показали, что
-    reasoning у glm-5.3-flash доходит до ~10.5k символов, и удвоения малого
-    базового лимита не хватало (600→1200→1800 всё равно упиралось в стену).
-    Некорректный базовый лимит заменяется дефолтом.
+    Верхняя ступень — не меньше потолка: если базовый бюджет не вместил ответ,
+    нужен заметный запас, а не удвоение малого лимита (600→1200→1800 всё равно
+    упиралось в стену на reasoning-модели). Некорректный базовый лимит
+    заменяется дефолтом.
     """
     if base < _BUDGET_MIN_USEFUL:
         logger.warning("llm.draft.max_tokens=%s слишком мало, берём %d", base, 1500)

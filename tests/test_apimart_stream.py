@@ -18,7 +18,7 @@ def _cfg() -> Config:
         settings=Settings(),
         llm_base_url="https://api.apimart.ai/v1",
         llm_api_key="sk-test",
-        draft_model="glm-5.3-flash",
+        draft_model="gemini-3.8-flash",
         judge_model="deepseek-v4-flash",
     )
 
@@ -48,5 +48,5 @@ def test_judge_body_disables_streaming():
 
 def test_bodies_use_apimart_models():
     cfg = _cfg()
-    assert build_prompt(_choice(), cfg)["model"] == "glm-5.3-flash"
+    assert build_prompt(_choice(), cfg)["model"] == "gemini-3.8-flash"
     assert build_judge_prompt(_choice(), {"headline": "x"}, cfg)["model"] == "deepseek-v4-flash"

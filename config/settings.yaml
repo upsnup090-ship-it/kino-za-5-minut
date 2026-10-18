@@ -21,16 +21,18 @@ choose:
 llm:
   draft:
     temperature: 0.75
-    # glm-5.3-flash — reasoning-модель: на reasoning уходит 5900–10464 символа
-    # (замеры на живом API), разброс непредсказуем. 4096 хватает в большинстве
-    # случаев, а при обрезке draft.py сам повторяет запрос: 4096 → 8192 → 16384.
+    # Базовый бюджет черновика. Точный лимит выбирается в коде по формату
+    # (_FORMAT_BUDGETS в draft.py): короткие 4096, средние 6144, длинные 8192.
+    # Это значение — фолбэк, если формат неизвестен.
+    # gemini-3.8-flash не тратит токены на reasoning, поэтому бюджета хватает
+    # с запасом; при обрезке draft.py повторяет запрос с большим лимитом.
     max_tokens: 4096
     top_p: 0.9
   judge:
     temperature: 0.1
     # Та же защита: 2048 → 16384, затем фолбэк-модель (JUDGE_FALLBACK_MODEL).
     max_tokens: 2048
-  # Reasoning-модель тратит на reasoning до ~14k символов и отвечает медленно.
+  # Reasoning-модель тратила на reasoning до ~14k символов и отвечала медленно.
   # 60с было мало: тяжёлый черновик упирался в таймаут на второй попытке.
   # 120с даёт одной попытке закончить; общий бюджет всё равно режет deadline.
   timeout_seconds: 120
@@ -39,9 +41,11 @@ providers:
   apimart:
     base_url: "https://api.apimart.ai/v1"
     api_key: "${APIMART_API_KEY}"
-    # Из таблицы APIMart: самые дешёвые чат-модели с оценкой 3/3.
-    # glm-5.3-flash $0.06/$0.20 — черновик; deepseek-v4-flash $0.1714/$0.5143 — судья.
-    draft_model: "glm-5.3-flash"
+    # gemini-3.8-flash — НЕ reasoning-модель ($0.6/$3.0 за млн): весь бюджет
+    # уходит на JSON, а не на скрытые «мысли». Прошлый glm-5.3-flash был
+    # reasoning-моделью (5900–10464 символа reasoning) и резал черновик.
+    # Судья: deepseek-v4-flash $0.1714/$0.5143 — дешёвый и без reasoning.
+    draft_model: "gemini-3.8-flash"
     judge_model: "deepseek-v4-flash"
   gemini:
     base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
@@ -66,7 +70,7 @@ providers:
 
 models:
   draft: "gemini-3.8-flash"
-  judge: "gemini-3.8-flash"
+  judge: "deepseek-v4-flash"
 
 wiki:
   timeout_seconds: 15
