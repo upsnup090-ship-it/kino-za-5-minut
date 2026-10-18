@@ -1,5 +1,6 @@
 # Источники RSS/Atom. name — человекочитаемое имя, url — адрес фида.
 sources:
+  # Пресса — ядро достоверности (первоисточники индустрии).
   - name: Deadline
     url: https://deadline.com/feed/
   - name: Variety
@@ -16,18 +17,39 @@ sources:
     url: https://www.rollingstone.com/movies/feed/
   - name: AVClub
     url: https://www.avclub.com/rss
+  # Reddit: только новостные сабреддиты. TrueFilm/marvelstudios/letterboxd
+  # убраны 18.10: лонгриды и фан-сабы дублируют прессу, а каждый Reddit-фид
+  # под 429-окном съедает минуты прогона.
   - name: Reddit/movies
     url: https://reddit.com/r/movies/top/.rss?t=day
-  - name: Reddit/TrueFilm
-    url: https://reddit.com/r/TrueFilm/top/.rss?t=week
-  - name: Reddit/marvelstudios
-    url: https://reddit.com/r/marvelstudios/top/.rss?t=day
   - name: Reddit/boxoffice
     url: https://reddit.com/r/boxoffice/top/.rss?t=day
-  - name: Reddit/letterboxd
-    url: https://reddit.com/r/letterboxd/top/.rss?t=day
-  # Азия и Россия вместо YouTube (его фиды отдавали SSLError/ReadTimeout,
-  # а сам RuTube закрыл RSS — 404 на всех путях).
+  # YouTube: официальные трейлерные каналы — кормушка форматов trailer/video.
+  # С боевого сервера RSS живые (в песочнице был SSLError — отсюда старое
+  # удаление 4b3e777; на сервере фиды отдают по 15 записей).
+  - name: YT/IGN
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw
+  - name: YT/SonyPicturesTV
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCghNDC2eT10D3TsiB2ooWow
+  - name: YT/A24
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCuPivVjnfNo4mb3Oog_frZg
+  - name: YT/Netflix
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCWOA1ZGywLbqmigxE4Qlvuw
+  - name: YT/Universal
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCq0OueAsdxH6b8nyAspwViw
+  - name: YT/Paramount
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCF9imwPMSGz4Vq1NiTWCC7g
+  - name: YT/SonyPictures
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCz97F7dMxBNOfGYu3rx8aCw
+  - name: YT/Lionsgate
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCJ6nMHaJPZvsJ-HmUmj1SeA
+  - name: YT/RottenTomatoes
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCE0Wkd9Jcn2-TNo5G8bLQrA
+  - name: YT/ScreenRant
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UC2iUwfYi_1FCGGqhOUNx-iA
+  - name: YT/Variety
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCgRQHK8Ttr1j9xCEpCAlgbQ
+  # Азия и Россия — региональный охват, включая российский кинорынок.
   - name: THR/Asia
     url: https://www.hollywoodreporter.com/t/asia/feed/
   - name: SCMP/Culture

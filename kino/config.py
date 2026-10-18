@@ -48,6 +48,7 @@ class Settings:
     telegram_timeout: float = 30.0
     retry_max_attempts: int = 5
     retry_backoff: float = 2.0
+    reddit_max_attempts: int = 2
     caption_max_length: int = 950
     caption_hard_limit: int = 1000
     parse_mode: str = "HTML"
@@ -222,6 +223,7 @@ def load_config(env_file: str | None = None) -> Config:
         wiki_user_agent=str(wiki.get("user_agent", "KinoZa5Minut/1.0")),
         telegram_timeout=float(publish.get("timeout_seconds", 30)),
         retry_max_attempts=int(retry.get("max_attempts", 3)),
+        reddit_max_attempts=int(retry.get("reddit_max_attempts", 2)),
         retry_backoff=float(retry.get("backoff_seconds", 2)),
         caption_max_length=int(caption.get("max_length", 950)),
         caption_hard_limit=int(caption.get("hard_limit", 1000)),

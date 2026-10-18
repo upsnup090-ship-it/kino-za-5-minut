@@ -310,6 +310,10 @@ def _fetch_one(
     если бюджет на исходе, лишняя попытка не запускается.
     """
     attempts = max(1, cfg.settings.retry_max_attempts)
+    if _is_reddit(source):
+        # Reddit под IP-окном лимита: пять долгих попыток не спасают фид,
+        # но выедают минуты у LLM-фазы — для него укороченная серия.
+        attempts = min(attempts, max(1, cfg.settings.reddit_max_attempts))
     delay = cfg.settings.retry_backoff
     last: tuple[str, list[FeedItem] | None, str | None] = (source.name, None, "unknown")
     for attempt in range(attempts):
