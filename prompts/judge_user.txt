@@ -10,6 +10,16 @@
 Черновик поста:
 {draft}
 
-Проверь черновик по спецификации формата. Верни JSON с полями:
-verdict, reason, headline, text, key_moment, question, hashtags, film, director,
-cast, release, studio, wiki, confidence.
+Проверь черновик по спецификации формата.
+
+Верни JSON с полями решения и правок:
+verdict, reason, headline, text, key_moment, question, hashtags,
+film, director, cast, release, studio, wiki, confidence, drop_fields.
+
+Формат-специфичные поля верни как в черновике, если они верны
+(poll_options, video_url, infographic, image_candidates,
+announcement, review, comparison, riddle,
+fact_source, news, quote, trailer, video, collage,
+production, interview, opinion).
+Выдуманное поле не затирай пустым значением — перечисли его путь в drop_fields
+(например, ["review.rating"]).

@@ -9,7 +9,17 @@
 Описание: {snippet}
 
 Напиши пост для канала в соответствии с форматом и спецификацией выше.
-Верни JSON с полями: headline, text, key_moment, question, hashtags,
-film, director, cast, release, studio, wiki,
+
+Верни JSON со всеми базовыми полями:
+headline, text, key_moment, question, hashtags,
+film, director, cast, release, studio, wiki.
+
+И всеми формат-специфичными полями из спецификации выше:
 poll_options, video_url, infographic, image_candidates,
-announcement, review, comparison, riddle.
+announcement, review, comparison, riddle,
+fact_source, news, quote, trailer, video, collage,
+production, interview, opinion.
+
+Заполняй только те формат-специфичные поля, которые относятся к текущему
+формату ({format}); остальные оставляй пустыми ([] для массивов, null для
+объектов, "" для строк).

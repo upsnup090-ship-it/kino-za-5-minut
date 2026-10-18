@@ -24,10 +24,14 @@ DEFAULT_DRAFT_SYSTEM = (
 )
 DEFAULT_DRAFT_USER = (
     "Формат: {format}\n"
+    "Спецификация формата:\n{format_spec}\n"
     "Источник: {source}\n"
     "Заголовок: {title}\n"
     "Описание: {snippet}\n"
-    "Верни JSON: headline, text, question, film, director, cast, release, studio, wiki."
+    "Верни JSON: headline, text, question, film, director, cast, release, studio, wiki, "
+    "fact_source, news, quote, trailer, video, collage, production, interview, opinion, "
+    "poll_options, video_url, infographic, image_candidates, announcement, review, "
+    "comparison, riddle."
 )
 DEFAULT_JUDGE_SYSTEM = (
     "Ты — строгий фактчекер и редактор Telegram-канала о кино. "
@@ -36,10 +40,12 @@ DEFAULT_JUDGE_SYSTEM = (
 DEFAULT_JUDGE_USER = (
     "Источник: {source}\n"
     "Заголовок: {title}\n"
-    "Описание: {snippet}\n\n"
+    "Описание: {snippet}\n"
+    "Формат: {format}\n"
+    "Спецификация формата:\n{format_spec}\n\n"
     "Черновик: {draft}\n\n"
     "Верни JSON: verdict, reason, headline, text, key_moment, question, hashtags, "
-    "film, director, cast, release, studio, wiki, confidence."
+    "film, director, cast, release, studio, wiki, confidence, drop_fields."
 )
 
 

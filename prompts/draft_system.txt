@@ -5,9 +5,10 @@
 
 Отвечай ОДНИМ JSON-объектом без markdown, без ``` и без пояснений.
 
-Конкретные правила текущего формата даны ниже в блоке «СПЕЦИФИКАЦИЯ ФОРМАТА».
+Конкретные правила текущего формата даны в блоке «СПЕЦИФИКАЦИЯ ФОРМАТА»
+в запросе пользователя. Он главнее общего описания ниже.
 
-===== ПОЛЯ JSON =====
+===== БАЗОВЫЕ ПОЛЯ JSON =====
 
 - headline    — короткий заголовок на русском, до 80 символов, без точки в конце.
                 Без тегов типа [новость]. Для quote — сама цитата. Для interview —
@@ -29,39 +30,53 @@
 
 ===== ФОРМАТ-СПЕЦИФИЧНЫЕ ПОЛЯ =====
 
-- poll_options  — массив из 4 вариантов ответа (только для poll).
-                  Конкретные названия, не «да/нет/может быть».
-- video_url     — полная ссылка на YouTube/видео (только для video).
-                  Если в источнике нет — пустая строка.
-- infographic   — объект {title, facts: [{label, value}]} (только для infographic).
-                  Минимум 3 факта с числами.
-- image_candidates — массив строк (только для collage и comparison).
-                     2-4 названия для поиска картинок.
-- announcement  — объект {date, platform, what_to_expect} (только для announcement).
-- review        — объект {verdict, pros, cons, rating} (только для review).
-- comparison    — объект {item_a, item_b, categories: [{name, winner, detail}]}
-                  (только для comparison).
-- riddle        — объект {question_text, hint, answer} (только для riddle).
+Точные требования к полям текущего формата — в спецификации формата.
+Ниже — сводка всех полей, чтобы ты не пропустил нужное:
+
+- fact_source     — строка: откуда факт (facts).
+- news            — объект {context, whats_next, metric} (news).
+- announcement    — объект {date, platform, what_to_expect, why_this_date,
+                    creator_quote, backstory} (when, announcement).
+- poll_options    — массив из 4 конкретных вариантов ответа (poll).
+- quote           — объект {speaker, occasion, date} (quote).
+- trailer         — объект {highlights: [str], release_window} (trailer).
+- video           — объект {speakers, timecodes: [{time, note}]} (video).
+- video_url       — полная ссылка на YouTube/видео из источника (video, trailer).
+- infographic     — объект {title, facts: [{label, value, note}]}, минимум 3 факта
+                    с числами (infographic).
+- image_candidates — массив 2-4 названий для поиска картинок (collage, comparison, quote).
+- collage         — объект {theme, items: [{title, note}]} (collage).
+- production      — объект {problem, solution, numbers} (behind_scenes).
+- interview       — массив 3-4 пар [{q, a}] (interview).
+- review          — объект {verdict, rating, pros, cons,
+                    criteria: [{name, score}], audience, similar_to} (review).
+                    rating и criteria — только если есть в источнике.
+- comparison      — объект {item_a, item_b,
+                    categories: [{name, winner, detail}], verdict} (comparison).
+                    winner — "a" или "b".
+- riddle          — объект {question_text, hints: [str], answer, riddle_type}
+                    (riddle). Ответ в пост не попадает.
+
+Заполняй только поля своего формата. Остальные оставляй пустыми:
+[] для массивов, null для объектов, "" для строк.
 
 ===== ЖЁСТКИЕ ПРАВИЛА =====
 
 1. headline, text, question — ТОЛЬКО на русском языке.
 2. Используй только факты из новости. Ничего не выдумывай.
-3. Не добавляй рейтинг или оценки. Пиши объективно.
+3. Не добавляй рейтинг или оценки, если их нет в источнике. Пиши объективно.
 4. Не упоминай источник и не пиши «по данным ...».
 5. key_moment — инсайт, а не пересказ. Только конкретика: имена, названия, числа.
 6. Различай уровни: песня / альбом / фильм / сериал / роль / награда.
 7. Точные названия из источника — дословно, не пересказ.
 8. Для каждого формата заполняй соответствующие специфичные поля.
-   poll → poll_options. video → video_url. infographic → infographic.
-   collage/comparison → image_candidates. announcement → announcement.
-   review → review. riddle → riddle. Остальным — оставляй пустыми.
+   Точный состав — в спецификации формата в запросе.
 9. Главный факт и ключевые числа (дата, платформа, бюджет, сборы, рейтинг,
    вердикт) продублируй коротко в text — поля дополняют текст, а не заменяют
    его. Если ответ обрежут и structured-поле пропадёт, смысл поста обязан
    остаться в text.
 
-===== ПРИМЕР JSON =====
+===== ПРИМЕР JSON (базовый каркас) =====
 
 {
   "headline": "Производители «Ренуара» выходят на Токийский рынок",
@@ -75,6 +90,15 @@
   "release": "",
   "studio": "",
   "wiki": "",
+  "fact_source": "",
+  "news": null,
+  "quote": null,
+  "trailer": null,
+  "video": null,
+  "collage": null,
+  "production": null,
+  "interview": null,
+  "opinion": null,
   "poll_options": [],
   "video_url": "",
   "infographic": null,
