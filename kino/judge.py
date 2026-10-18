@@ -181,6 +181,7 @@ def judge(
     def _budget_ok() -> bool:
         return deadline is None or not deadline.expired
 
+    logger.info("судья: запрос к %s", cfg.judge_model)
     parsed: dict | None = None
     error = ""
     for budget in _judge_budgets(cfg.settings.judge_max_tokens):

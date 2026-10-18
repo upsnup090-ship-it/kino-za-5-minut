@@ -165,6 +165,8 @@ def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> d
     budgets = _budget_ladder(cfg.settings.draft_max_tokens)
     last_error = ""
     for attempt, budget in enumerate(budgets):
+        logger.info("черновик: запрос к %s (попытка %d/%d)",
+                    cfg.draft_model, attempt + 1, len(budgets))
         if deadline is not None and deadline.expired:
             raise DraftError(
                 f"бюджет прогона исчерпан на черновике (попытка {attempt + 1}/{len(budgets)})"

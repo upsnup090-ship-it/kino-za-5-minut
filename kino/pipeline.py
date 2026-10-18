@@ -350,6 +350,8 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         if not collected.items:
             return _abort(f"сбор не дал записей (broken={len(collected.broken)})")
         choice: Choice = choose(collected.items, cfg, used_links, used_sigs)
+        logger.info("тема выбрана: %s | формат: %s",
+                    choice.item.title[:80], choice.format)
 
         record_format_stat(cfg, choice)
 

@@ -286,6 +286,7 @@ def publish(
     if dry_run:
         logger.info("dry-run: публикация пропущена")
         return False
+    logger.info("публикация: kind=%s", kind)
     if not cfg.channel_chat_id:
         raise PublishError("CHANNEL_CHAT_ID не задан")
     chat = cfg.channel_chat_id
