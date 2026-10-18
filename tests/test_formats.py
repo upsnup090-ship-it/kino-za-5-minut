@@ -340,3 +340,36 @@ def test_iframe_embed_is_stripped_by_feedparser_not_matched():
                   '<description><![CDATA[<iframe src="https://www.youtube.com/embed/dQw4w9TgXcU"></iframe>]]>'
                   '</description></item></channel></rss>')
     assert item.video_url == ""
+
+
+# --- единственная точка обрезки подписи --------------------------------------
+
+def test_text_variation_not_cut_by_photo_limit():
+    """Регресс: текстовый пост резался редакторским лимитом фото (950)."""
+    from kino.config import Config, Settings
+    draft = {"headline": "Интервью", "text": "Т" * 3000, "question": "В?",
+             "hashtags": ["кино"]}
+    cfg = Config(settings=Settings())
+    text_cap = build_caption(draft, "", cfg, kind="text")
+    photo_cap = build_caption(draft, "", cfg, kind="photo")
+    assert len(text_cap) > len(photo_cap)
+    assert len(text_cap) <= 4096
+    assert len(photo_cap) <= 1024
+
+
+def test_photo_hard_limit_survives_raised_editorial_cap():
+    """Если мягкий лимит поднимут выше потолка Telegram, пост не отобьётся."""
+    from types import SimpleNamespace
+    cfg = SimpleNamespace(settings=SimpleNamespace(caption_max_length=5000,
+                                                  caption_hard_limit=5000))
+    cap = build_caption({"headline": "H", "text": "Т" * 6000}, "", cfg, kind="photo")
+    assert len(cap) <= 1024
+
+
+def test_no_kind_keeps_editorial_limits():
+    """Вызов без kind (демо, старые тесты) — прежнее поведение 950/1000."""
+    from types import SimpleNamespace
+    cfg = SimpleNamespace(settings=SimpleNamespace(caption_max_length=950,
+                                                  caption_hard_limit=1000))
+    cap = build_caption({"headline": "H", "text": "Т" * 3000}, "", cfg)
+    assert 900 < len(cap) <= 1000

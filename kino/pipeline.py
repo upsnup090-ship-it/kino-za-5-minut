@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from kino.caption import build_caption as build_caption_text
-from kino.caption import caption_limit_for, truncate_caption
 from kino.choose import Choice, choose
 from kino.collect import collect
 from kino.config import Config
@@ -444,20 +443,15 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         else:
             logger.info("вариация поста: %s", kind)
 
-        # Подпись строится после всех превращений kind: лимит зависит от
-        # вариации (1024 для фото/карусели, 4096 для текста/ссылки), а в опросе
-        # вопрос не должен дублироваться — build_caption получает kind.
+        # Подпись строится после всех превращений kind: лимит выбирает
+        # build_caption (1024 для фото/карусели, 4096 для текста/ссылки/опроса),
+        # а в опросе вопрос не дублируется — для этого сюда и приходит kind.
         caption = build_caption(
             final_data,
             image.url,
             cfg,
             kind=kind,
             include_facts=include_facts,
-        )
-        caption = truncate_caption(
-            caption,
-            max_length=caption_limit_for(kind),
-            hard_limit=caption_limit_for(kind),
         )
 
         if not dry_run:
