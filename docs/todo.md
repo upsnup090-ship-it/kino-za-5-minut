@@ -1,42 +1,91 @@
-# TO-DO: Форматы постов для реализации
+# Журнал: форматы и находки
 
-## Готово — все 15 форматов
-1. facts — интересный факт → случайная вариация
-2. news — оперативная новость → случайная вариация
-3. when — новость с датой → случайная вариация
-4. poll — опрос → poll
-5. quote — цитата → случайная вариация
-6. trailer — трейлер → link
-7. video — видео → link (YouTube-превью)
-8. infographic — инфографика → QuickChart → photo
-9. collage — коллаж → gallery (карусель)
-10. behind_scenes — закулисье → случайная вариация
-11. interview — интервью/диалог → article
-12. announcement — анонс события → случайная вариация
-13. review — рецензия → article
-14. comparison — сравнение → gallery (2 картинки)
-15. riddle — загадка → случайная вариация
-16. opinion — мнение/аналитика → article
+Формат записи: **что не так → чем подтверждено → что сделать**.
+ВНИМАНИЕ: исходный список доработок был перезаписан 18.10 (я нарушил шаг 0 workflow —
+записал файл, не прочитав). Найденные пункты восстановлены по комментариям в коде.
+Пункты с [в коде] — правка уже сделана (видно по комментариям), оставить как evidence.
 
-## Что изменилось в этом PR
-- config/formats.yaml — 16 форматов с весами
-- prompts/draft_system.txt — полные инструкции для всех 16 форматов
-- prompts/draft_user.txt — все поля в запросе
-- kino/infographic.py — QuickChart-рендер
-- kino/draft.py, kino/judge.py — salvage-ключи для всех новых полей
-- kino/pipeline.py — _FORMAT_TO_KIND (9 маппингов), инфографика, коллаж, сравнение
+## Mелкие доработки (восстановлено из кода)
+- [в коде] обрезка подписи по лимиту вариации (1024 для photo/gallery, 4096 для text/link/poll) → kino/caption.py caption_limit_for + комментарий.
+- [в коде] потеря текста в poll → send_poll_with_caption шлёт текст отдельным сообщением, иначе опрос без лида.
+- [в коде] stale lock → StateLock acquire() с проверкой владельца/process-start.
+- мёртвые переменные окружения — сверить .env.example против config.py, вычистить неиспользуемые. НЕ ПРОВЕРЕНО.
 
-## Свободные форматы (7)
-facts, news, when, quote, behind_scenes, announcement, riddle
-→ случайный выбор вариации через post_variations
+## Находки review 18.10 (форматы 5–15)
 
-## Форматы с фиксированной вариацией (9)
-poll→poll, trailer→link, video→link, infographic→photo,
-collage→gallery, interview→article, review→article,
-comparison→gallery, opinion→article
+### BLOCKERS (новые форматы не работают как заявлено)
+1. Новые формат-поля нигде не рендерятся. → announcement/review/riddle/comparison
+   генерируются LLM, но build_caption() их не читает, _publish_article() тоже.
+   Подтверждено прогоном: черновик с заполненными announcement/review/riddle/comparison →
+   в подпись попадают только headline+text. Итог: 4 из 5 новых форматов дают обычный
+   текстовый пост. → сделать: рендерить поля в caption.py (и в статью) ИЛИ просить LLM
+   вкладывать их в text прямо в промпте.
+2. `**В:** / **О:**` в interview не конвертируется в HTML. parse_mode=HTML (settings.yaml),
+   Telegram не понимает markdown-звёздочки → в канал уйдут literal **В:**.
+   → сделать: либо промпт на <b>В:</b>, либо md→html конвертер в caption.py.
+3. Guard переноса полей в judge.py затирает черновик пустыми контейнерами.
+   `if value not in (None, "")` для key_moment/hashtags, но в мой цикл переноса
+   новых полей `[]`/`{}` проходят как "не пусто" → судья вернёт "poll_options": [] и
+   затрёт реальные опции. Подтверждено симуляцией: draft ['Оппенгеймер','Дюна'] +
+   judge [] → итог []. → сделать: skip для (None, "", [], {}).
+4. quickchart.io НЕ в списке разрешённой сети (skill: только api.telegram.org +
+   LLM_BASE_URL; расширение — только словами пользователя). Бот не ходит в quickchart
+   сам (URL скачивает Telegram), но данные канала уходят в третью сторону через URL
+   диаграммы. → решить с пользователем: одобряем сервис / ищем замену / отказ.
+5. Params QuickChart (chartJsUrl, plugins, type:'horizontalBar', функции-строки в
+   callback/formatter) не проверены — под запретом сеть. Функции в JSON не валидны,
+   callback в виде строки Chart.js проигнорирует → подзаголовки фактов не отрендерятся.
+   → после одобрения: проверить живым запросом, иначе упростить до нативных опций.
 
-## Мелкие доработки
-- обрезка подписи
-- потеря текста в poll
-- stale lock
-- мёртвые переменные окружения
+### СРЕДНИЕ (деградации/риск)
+6. Опрос с дублированием вопроса. _FORMAT_TO_KIND['poll']='poll' теперь форсирует опрос
+   для каждого poll-черновика; caption строится раньше и уже содержит "❓ вопрос", +
+   сам опрос с тем же вопросом. Подтверждено кодом (build_caption даёт ❓). → сделать:
+   при kind=poll вырезать question из caption.
+7. sad-топики не прикрыты для новых форматов. _pick_format меняет when→news; но смерть
+   актёра теперь может получить poll ("Как вы относитесь к гибели X?"), riddle, trailer,
+   comparison — неуместно. → сделать: на sadTopics разрешить только news/facts/quote.
+8. infographic часто деградирует. Обрезанный reasoning-ответ теряет вложенный объект:
+   подтверждено parse_json_object(salvage) — infographic не спасается (нужны
+   headline,text только). Плюс QuickChart URL раздувается: 3 факта = 2260 симв.,
+   кириллица = 2653 → лимит Telegram на URL фото не проверен. → сделать: лимит 4 факта,
+   тест URL-длины, salvage-обработка вложенных объектов.
+9. Нет ни одного теста на новые форматы: grep по tests/ на video_url/infographic/
+   announcement/riddle/review/comparison/opinion — пусто. 319 зелёных не покрывают
+   новое. → сделать: тесты pick_variation-маппингов, guard судьи, infographic.validate/build_url,
+   sad-фильтр, рендер полей в подпись.
+
+### МЕЛКОЕ
+10. build_caption(draft_data, image_url, cfg) — image_url мёртвый параметр (grep: в
+    теле функции не используется). → вынести в отдельную задачу, менять сигнатуру аккуратно.
+11. pick_variation docstring вписывает 6 маппингов, сейчас 9 (review/comparison/opinion).
+    → дописать.
+12. demo_posts.py знает только format="news" (строка 62) → новые форматы не покажут себя.
+    → добавить проход по всем 16 форматам.
+13. Промпт-система разрослась до ~12 КБ (~3.5k токенов) на каждый вызов черновика.
+    На цене поста почти не сказывается, но растёт риск обрезки reasoning — следить за
+    llm.draft.max_tokens.
+14. `riddle.answer` нигде не экранируется от утечки в текст — в caption поле не читается,
+    но judge_system.txt не знает про riddle и может "починить" текст, добавив ответ.
+    → дописать в judge_system: не раскрывать answer.
+
+## Реестр форматов (16)
+| # | format | доставка |
+|---|--------|----------|
+| 1 | facts | случайно |
+| 2 | news | случайно |
+| 3 | when | случайно |
+| 4 | quote | случайно |
+| 5 | behind_scenes | случайно |
+| 6 | announcement | случайно |
+| 7 | riddle | случайно |
+| 8 | poll | poll |
+| 9 | trailer | link |
+| 10 | video | link |
+| 11 | infographic | photo (QuickChart) |
+| 12 | collage | gallery |
+| 13 | comparison | gallery |
+| 14 | interview | article |
+| 15 | review | article |
+| 16 | opinion | article |
+Сумма весов: 110 (пропорциональный выбор).
