@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = ROOT / "prompts"
+FORMATS_DIR = PROMPTS_DIR / "formats"
 
 # Встроенные дефолты — используются, если файла нет.
 DEFAULT_DRAFT_SYSTEM = (
@@ -71,6 +72,33 @@ def render(template: str, **values: object) -> str:
             return "{" + key + "}"
 
     return template.format_map(_SafeDict(values))
+
+
+def format_spec(fmt: str) -> str:
+    """Читает спецификацию формата из prompts/formats/<fmt>.txt.
+
+    Файла нет или он пуст — громко логируем и отдаём generic fallback,
+    чтобы прогон не упал, но дрейст был виден. Реальные spec-файлы
+    обязаны покрывать все форматы из config/formats.yaml (проверяется
+    тестом-реестром).
+    """
+    path = FORMATS_DIR / f"{fmt}.txt"
+    default = (
+        f"Спецификация формата '{fmt}' недоступна. "
+        "Следуй общему описанию формата в системном сообщении."
+    )
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        logger.error("спецификация формата не найдена: %s", path)
+        return default
+    except OSError as exc:
+        logger.error("не удалось прочитать спецификацию формата %s: %s", path, exc)
+        return default
+    if not text:
+        logger.error("спецификация формата пуста: %s", path)
+        return default
+    return text
 
 
 def draft_system() -> str:

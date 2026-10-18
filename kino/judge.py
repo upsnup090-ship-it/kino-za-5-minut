@@ -12,7 +12,7 @@ from kino.config import Config
 from kino.draft import DraftError, _post_chat
 from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
-from kino.prompts import judge_system, judge_user
+from kino.prompts import judge_system, judge_user, format_spec
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,8 @@ def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         source=item.source,
         title=item.title,
         snippet=item.snippet,
+        format=choice.format,
+        format_spec=format_spec(choice.format),
         draft=json.dumps(draft_data, ensure_ascii=False),
     )
     return {

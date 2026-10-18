@@ -1,10 +1,15 @@
 Источник: {source}
 Заголовок новости: {title}
 Описание: {snippet}
+Формат: {format}
+
+--- СПЕЦИФИКАЦИЯ ФОРМАТА ---
+{format_spec}
+--- КОНЕЦ СПЕЦИФИКАЦИИ ---
 
 Черновик поста:
 {draft}
 
-Проверь черновик. Верни JSON с полями:
+Проверь черновик по спецификации формата. Верни JSON с полями:
 verdict, reason, headline, text, key_moment, question, hashtags, film, director,
 cast, release, studio, wiki, confidence.

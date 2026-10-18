@@ -12,7 +12,7 @@ from kino.deadline import Deadline
 from kino.choose import Choice
 from kino.config import Config
 from kino.jsonparse import parse_json_object
-from kino.prompts import draft_system, draft_user
+from kino.prompts import draft_system, draft_user, format_spec
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def build_prompt(choice: Choice, cfg: Config) -> dict:
     system = draft_system()
     user = draft_user(
         format=choice.format,
+        format_spec=format_spec(choice.format),
         source=item.source,
         title=item.title,
         snippet=item.snippet,

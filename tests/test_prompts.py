@@ -22,6 +22,7 @@ def test_judge_system_loads_nonempty():
 def test_draft_user_renders_placeholders():
     text = prompts.draft_user(
         format="news",
+        format_spec="news — оперативная новость.",
         source="Variety",
         title="Dune Part Three",
         snippet="Denis Villeneuve confirms.",
@@ -30,6 +31,7 @@ def test_draft_user_renders_placeholders():
     assert "Variety" in text
     assert "Dune Part Three" in text
     assert "Denis Villeneuve confirms." in text
+    assert "news — оперативная новость." in text
     # плейсхолдеров не осталось
     assert "{" not in text
 
@@ -39,15 +41,43 @@ def test_judge_user_renders_placeholders():
         source="Deadline",
         title="Superman trailer",
         snippet="James Gunn unveils.",
+        format="trailer",
+        format_spec="trailer — новость о трейлере.",
         draft='{"headline": "x"}',
     )
     assert "Deadline" in text
     assert "Superman trailer" in text
     assert '{"headline": "x"}' in text
+    assert "trailer — новость о трейлере." in text
     # плейсхолдеров не осталось (фигурные скобки в JSON черновика не считаются)
     assert "{source}" not in text
     assert "{title}" not in text
     assert "{draft}" not in text
+
+
+def test_format_spec_loads_existing_file():
+    text = prompts.format_spec("facts")
+    assert "facts" in text
+    assert "интересный факт" in text
+
+
+def test_format_spec_missing_file_returns_fallback_and_logs(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(prompts, "FORMATS_DIR", tmp_path)
+    with caplog.at_level("ERROR"):
+        text = prompts.format_spec("missingfmt")
+    assert "Спецификация формата" in text
+    assert "не найдена" in caplog.text
+
+
+def test_format_spec_empty_file_returns_fallback_and_logs(tmp_path, monkeypatch, caplog):
+    fmt_dir = tmp_path / "formats"
+    fmt_dir.mkdir()
+    (fmt_dir / "empty.txt").write_text("   ", encoding="utf-8")
+    monkeypatch.setattr(prompts, "FORMATS_DIR", fmt_dir)
+    with caplog.at_level("ERROR"):
+        text = prompts.format_spec("empty")
+    assert "Спецификация формата" in text
+    assert "пуста" in caplog.text
 
 
 def test_missing_file_falls_back_to_default(monkeypatch, tmp_path):
