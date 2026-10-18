@@ -164,6 +164,9 @@ def _pick_page(pages: list[dict], query: str) -> dict | None:
             return page
 
     # Произведения нет: берём страницу с наибольшим пересечением с запросом.
+    # Но если пересечения нет вообще ни с одной страницей — это мусор из
+    # поиска (боевой кейс: «Что принадлежит другим фильм» → фото школы
+    # Schule Nummer 1), лучше остаться без картинки.
     best = first
     best_overlap = len(first_words & query_words)
     for page in pages[1:]:
@@ -173,6 +176,9 @@ def _pick_page(pages: list[dict], query: str) -> dict | None:
         overlap = len(words & query_words)
         if overlap > best_overlap:
             best, best_overlap = page, overlap
+    if best_overlap == 0:
+        logger.info("картинка: ни одна страница не совпала с запросом, пропускаем")
+        return None
     return best
 
 
@@ -217,6 +223,25 @@ def _thumb_from_search(page: dict) -> str:
     return _clean_url(str(thumb.get("url") or thumb.get("source") or ""))
 
 
+# Превью из поисковой выдачи бывают 60–120px — в Telegram это мыло (боевой
+# кейс: /60px-...jpg). URL thumb у Wikimedia позволяет запросить любую ширину,
+# так что мелкое превью просто перезапрашивается по тому же пути крупнее.
+_THUMB_MIN_WIDTH = 320
+_WIDTH_RE = re.compile(r"/(\d+)px-")
+
+
+def _thumb_width(url: str) -> int:
+    match = _WIDTH_RE.search(url)
+    return int(match.group(1)) if match else 10**9
+
+
+def _upgrade_thumb(url: str, width: int = 640) -> str:
+    """.../thumb/.../60px-F.jpg → .../640px-F.jpg; не-thumb и крупные — как есть."""
+    if not url or _thumb_width(url) >= width:
+        return url
+    return _WIDTH_RE.sub(f"/{width}px-", url, count=1)
+
+
 def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:
     """Ищет картинку по нескольким кандидатам по порядку.
 
@@ -245,6 +270,8 @@ def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:
                 key = str(page.get("key") or "")
                 if key:
                     url = _summary_thumb(lang, key, cfg)
+            if url and _thumb_width(url) < _THUMB_MIN_WIDTH:
+                url = _upgrade_thumb(url)
             if url:
                 return ImageResult(url=url, title=str(page.get("title", "")), lang=lang)
     return ImageResult()
@@ -281,6 +308,8 @@ def find_images(wiki_title: str, extra_titles: list[str], cfg: Config) -> list[s
                 key = str(page.get("key") or "")
                 if key:
                     url = _summary_thumb(lang, key, cfg)
+            if url and _thumb_width(url) < _THUMB_MIN_WIDTH:
+                url = _upgrade_thumb(url)
             if url and url not in urls:
                 urls.append(url)
     return urls

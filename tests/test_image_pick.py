@@ -96,3 +96,49 @@ def test_clean_url_drops_query_keeps_thumb_path():
 def test_clean_url_rejects_placeholder():
     assert _clean_url("https://example.com/no_image_available.png") == ""
     assert _clean_url("") == ""
+
+# --- мусорные страницы и мелкие превью (боевой прогон 18.10) -----------------
+
+
+def test_pick_page_returns_none_on_zero_overlap():
+    """Фото школы вместо фильма хуже отсутствия картинки.
+
+    Боевой кейс: запрос «Что принадлежит другим фильм», поиск вернул
+    Schule Nummer 1 (панорама школы) — ни одного общего слова с запросом.
+    """
+    pages = [
+        _page("Schule_Nummer_1", "панорама школы, здание"),
+        _page("Городская_школа_номер_один", "здание городской школы"),
+    ]
+    assert _pick_page(pages, "Что принадлежит другим фильм") is None
+
+
+def test_thumb_width_parses_from_url():
+    from kino.image import _thumb_width
+    thumb = ("https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/"
+             "F.jpg/60px-F.jpg")
+    plain = "https://upload.wikimedia.org/wikipedia/commons/a/ab/F.jpg"
+    assert _thumb_width(thumb) == 60
+    assert _thumb_width(plain) > 10**8  # не thumb — считаем крупным
+
+
+def test_upgrade_thumb_asks_wikimedia_for_bigger_version():
+    from kino.image import _upgrade_thumb
+    thumb = ("https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/"
+             "F.jpg/60px-F.jpg")
+    upgraded = _upgrade_thumb(thumb)
+    assert upgraded == thumb.replace("60px-F.jpg", "640px-F.jpg")
+    # не-thumb URL и уже крупное — без изменений
+    plain = "https://upload.wikimedia.org/wikipedia/commons/a/ab/F.jpg"
+    assert _upgrade_thumb(plain) == plain
+    big = thumb.replace("60px", "800px")
+    assert _upgrade_thumb(big) == big
+
+
+def test_search_thumb_below_320px_is_upgraded():
+    """60px из поисковой выдачи перезапрашивается крупным (боевой кейс)."""
+    from kino.image import _upgrade_thumb
+    from kino.image import _thumb_width as tw
+    thumb = ("https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/"
+             "F.jpg/60px-F.jpg")
+    assert tw(_upgrade_thumb(thumb)) == 640
