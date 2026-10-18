@@ -268,14 +268,15 @@ def record_format_stat(cfg: Config, choice: Choice) -> None:
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Config, kind: str = "",
-                  include_facts: bool = False) -> str:
+                  include_facts: bool = False, fmt: str = "") -> str:
     """Собирает подпись из черновика (единственный стиль, см. kino.caption).
 
     kind и include_facts влияют на состав блоков: опрос не дублирует вопрос,
-    инфографика без картинки отдаёт цифры текстом.
+    инфографика без картинки отдаёт цифры текстом. fmt — формат контента:
+    длинные форматы (LONG_FORMATS) не режутся редакторским капом.
     """
     return build_caption_text(draft_data, image_url, cfg, kind=kind,
-                              include_facts=include_facts)
+                              include_facts=include_facts, fmt=fmt)
 
 
 def apply_infographic(choice: Choice, final_data: dict,
@@ -452,6 +453,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             cfg,
             kind=kind,
             include_facts=include_facts,
+            fmt=choice.format,
         )
 
         if not dry_run:

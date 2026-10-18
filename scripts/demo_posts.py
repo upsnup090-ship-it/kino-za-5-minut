@@ -118,7 +118,7 @@ def main() -> int:
             print("ФОРМАТ-ПОЛЯ:", json.dumps(format_fields, ensure_ascii=False))
 
         caption = build_caption(final, image.url, cfg, kind=kind,
-                                include_facts=include_facts)
+                                include_facts=include_facts, fmt=fmt)
         print(f"\nГОТОВАЯ ПОДПИСЬ ({len(caption)} символов):")
         print(caption)
         print("=" * 70)

@@ -344,20 +344,34 @@ def test_iframe_embed_is_stripped_by_feedparser_not_matched():
 
 # --- единственная точка обрезки подписи --------------------------------------
 
-def test_editorial_cap_applies_to_every_variation():
-    """Кап канала (950 из settings.yaml) един для всех вариаций.
+def test_short_formats_share_editorial_cap():
+    """Короткие «выжимки» (решение владельца): кап 950 един для всех вариаций."""
+    from kino.config import Config, Settings
+    draft = {"headline": "Выжимка", "text": "Т" * 3000, "question": "В?",
+             "hashtags": ["кино"]}
+    cfg = Config(settings=Settings())
+    caps = [len(build_caption(draft, "", cfg, kind=k, fmt="facts"))
+            for k in ("photo", "text", "link", "poll", "")]
+    assert max(caps) == min(caps), f"вариации режутся по-разному: {caps}"
+    assert caps[0] <= 1000
 
-    Поднимать его для текста/ссылки/опроса до 4096 — смена голоса канала,
-    это решает только владелец канала через caption.max_length, не код.
+
+def test_long_formats_not_cut_by_editorial_cap():
+    """Длинные форматы (интервью/рецензия/аналитика) не теряют хвост.
+
+    Решение владельца: длина привязана к формату генерации — интервью и
+    аналитика должны помещаться целиком, с вопросом и хэштегами.
     """
     from kino.config import Config, Settings
     draft = {"headline": "Интервью", "text": "Т" * 3000, "question": "В?",
              "hashtags": ["кино"]}
     cfg = Config(settings=Settings())
-    caps = [len(build_caption(draft, "", cfg, kind=k))
-            for k in ("photo", "text", "link", "poll", "")]
-    assert max(caps) == min(caps), f"вариации режутся по-разному: {caps}"
-    assert caps[0] <= 1000
+    for fmt in ("review", "interview", "opinion"):
+        for kind in ("link", "text"):
+            cap = build_caption(draft, "", cfg, kind=kind, fmt=fmt)
+            assert len(cap) > 3000, f"{fmt}/{kind}: резанулся на {len(cap)}"
+            assert len(cap) <= 4096
+            assert "#кино" in cap and "В?" in cap, f"{fmt}/{kind}: хвост потерян"
 
 
 def test_photo_hard_limit_survives_raised_editorial_cap():

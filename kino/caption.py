@@ -256,8 +256,13 @@ def _infographic_block(draft_data: dict, plain: bool = False) -> list[str]:
     return rows
 
 
+#: Форматы, чей текст не режется редакторским капом: интервью, рецензия,
+#: аналитика — длинные по замыслу, их хвост (вопрос, хэштеги) терять нельзя.
+LONG_FORMATS = {"interview", "review", "opinion"}
+
+
 def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
-                  include_facts: bool = False) -> str:
+                  include_facts: bool = False, fmt: str = "") -> str:
     """Собирает подпись в чистом журналистском стиле.
 
     Стиль один: заголовок, текст, форматные поля, ключевой момент, вопрос,
@@ -290,15 +295,19 @@ def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
         blocks.append(" ".join(f"#{h}" for h in hashtags))
 
     caption = "\n\n".join(blocks)
-    # Единая точка обрезки (раньше обрезали дважды, и внешний вызов был
-    # недостижим). Редакторский cap из settings.yaml задаёт стиль канала и
-    # действует на ВСЕ вариации: я не имею права молча менять длину постов.
-    # caption_limit_for — это защитный потолок Telegram (1024 для подписи к
-    # медиа, 4096 для текста): он нужен, если cap поднимут выше лимита
-    # мессенджера, тогда фото-пост не отобьётся, а текстовый не режется зря.
+    # Лимит зависит от ФОРМАТА генерации, а не только от вариации доставки
+    # (решение владельца канала): длинные форматы (интервью, рецензия,
+    # аналитика) не режем редакторским капом — иначе теряются хвост поста,
+    # вопрос и хэштеги. Короткие «выжимки» (facts/news/when/quote и т.д.)
+    # держим в стиле канала (caption_max_length) в любой вариации.
+    # Жёсткий потолок в любом случае — caption_limit_for(kind): 1024 для
+    # подписи к фото/карусели, 4096 для текста/ссылки/опроса.
     ceiling = caption_limit_for(kind) if kind else cfg.settings.caption_hard_limit
-    hard = min(cfg.settings.caption_hard_limit, ceiling)
-    soft = min(cfg.settings.caption_max_length, hard)
+    if fmt in LONG_FORMATS:
+        hard = soft = ceiling
+    else:
+        hard = min(cfg.settings.caption_hard_limit, ceiling)
+        soft = min(cfg.settings.caption_max_length, hard)
     return truncate_caption(caption, max_length=soft, hard_limit=hard)
 
 
