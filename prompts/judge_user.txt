@@ -6,5 +6,5 @@
 {draft}
 
 Проверь черновик. Верни JSON с полями:
-verdict, headline, text, key_moment, question, hashtags, film, director,
+verdict, reason, headline, text, key_moment, question, hashtags, film, director,
 cast, release, studio, wiki, confidence.

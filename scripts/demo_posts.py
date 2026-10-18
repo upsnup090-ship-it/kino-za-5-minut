@@ -19,7 +19,7 @@ from kino.choose import Choice  # noqa: E402
 from kino.collect import FeedItem  # noqa: E402
 from kino.config import load_config  # noqa: E402
 from kino.draft import DraftError, draft  # noqa: E402
-from kino.image import find_image  # noqa: E402
+from kino.image import find_image_multi  # noqa: E402
 from kino.judge import judge  # noqa: E402
 from kino.pipeline import build_caption  # noqa: E402
 
@@ -75,7 +75,7 @@ def main() -> int:
         print(json.dumps(final, ensure_ascii=False, indent=2))
 
         wiki_title = str(final.get("wiki", "")).strip()
-        image = find_image(wiki_title, cfg) if wiki_title else None
+        image = find_image_multi([wiki_title], cfg) if wiki_title else None
         image_url = image.url if image else ""
         print(f"\nКАРТИНКА: {image_url or 'нет'}")
 

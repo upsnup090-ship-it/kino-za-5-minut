@@ -17,15 +17,15 @@ sources:
   - name: AVClub
     url: https://www.avclub.com/rss
   - name: Reddit/movies
-    url: https://www.reddit.com/r/movies/top/.rss?t=day
+    url: https://reddit.com/r/movies/top/.rss?t=day
   - name: Reddit/TrueFilm
-    url: https://www.reddit.com/r/TrueFilm/top/.rss?t=week
+    url: https://reddit.com/r/TrueFilm/top/.rss?t=week
   - name: Reddit/marvelstudios
-    url: https://www.reddit.com/r/marvelstudios/top/.rss?t=day
+    url: https://reddit.com/r/marvelstudios/top/.rss?t=day
   - name: Reddit/boxoffice
-    url: https://www.reddit.com/r/boxoffice/top/.rss?t=day
+    url: https://reddit.com/r/boxoffice/top/.rss?t=day
   - name: Reddit/letterboxd
-    url: https://www.reddit.com/r/letterboxd/top/.rss?t=day
+    url: https://reddit.com/r/letterboxd/top/.rss?t=day
   # Азия и Россия вместо YouTube (его фиды отдавали SSLError/ReadTimeout,
   # а сам RuTube закрыл RSS — 404 на всех путях).
   - name: THR/Asia

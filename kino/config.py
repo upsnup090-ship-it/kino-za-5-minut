@@ -33,6 +33,7 @@ class Settings:
     allow_stale_fallback: bool = True
     user_agent: str = "KinoZa5Minut/1.0"
     max_workers: int = 6
+    reddit_pause: float = 3.0
     window_size: int = 10
     state_max_links: int = 120
     state_max_signatures: int = 60
@@ -51,6 +52,22 @@ class Settings:
     caption_hard_limit: int = 1000
     parse_mode: str = "HTML"
     post_variations: dict[str, int] = field(default_factory=dict)
+    deadline_seconds: float = 180.0
+    # --- расписание 24/7 ---
+    schedule_windows: list[str] = field(default_factory=list)
+    max_posts_per_day: int = 3
+    min_gap_minutes: int = 45
+    timezone: str = "Europe/Moscow"
+    tick_seconds: int = 60
+    # --- логи ---
+    log_level: str = "INFO"
+    log_file: str = "logs/kino.log"
+    log_max_bytes: int = 5 * 1024 * 1024
+    log_backup_count: int = 5
+    log_console: bool = True
+    log_retention_days: int = 14
+    log_max_total_bytes: int = 100 * 1024 * 1024
+    log_purge_interval_hours: int = 24
 
 
 @dataclass
@@ -72,6 +89,7 @@ class Config:
     llm_proxy_url: str | None = None
     state_path: Path = ROOT / "data" / "state.json"
     stats_path: Path = ROOT / "logs" / "format_stats.csv"
+    cache_dir: Path = ROOT / "data" / "feed_cache"
     source_mode: str = "rss"
     horizon_dir: Path = ROOT / "horizon"
     horizon_summaries_dir: Path = ROOT / "horizon" / "data" / "summaries"
@@ -177,6 +195,9 @@ def load_config(env_file: str | None = None) -> Config:
     retry = settings_raw.get("retry", {})
     caption = settings_raw.get("caption", {})
     publish = settings_raw.get("publish", {})
+    run = settings_raw.get("run", {})
+    schedule = settings_raw.get("schedule", {})
+    logging_cfg = settings_raw.get("logging", {})
     horizon = settings_raw.get("horizon", {})
 
     settings = Settings(
@@ -187,6 +208,7 @@ def load_config(env_file: str | None = None) -> Config:
         allow_stale_fallback=bool(collect.get("allow_stale_fallback", True)),
         user_agent=str(collect.get("user_agent", "KinoZa5Minut/1.0")),
         max_workers=int(collect.get("max_workers", 6)),
+        reddit_pause=float(collect.get("reddit_pause_seconds", 3)),
         window_size=int(choose.get("window_size", 10)),
         state_max_links=int(choose.get("state_max_links", 120)),
         state_max_signatures=int(choose.get("state_max_signatures", 60)),
@@ -205,7 +227,41 @@ def load_config(env_file: str | None = None) -> Config:
         caption_hard_limit=int(caption.get("hard_limit", 1000)),
         parse_mode=str(publish.get("parse_mode", "HTML")),
         post_variations=dict(settings_raw.get("post_variations", {}) or {}),
+        deadline_seconds=float(run.get("deadline_seconds", 180)),
+        schedule_windows=[str(x) for x in schedule.get("windows", [])],
+        max_posts_per_day=int(schedule.get("max_posts_per_day", 3)),
+        min_gap_minutes=int(schedule.get("min_gap_minutes", 45)),
+        timezone=str(schedule.get("timezone", "Europe/Moscow")),
+        tick_seconds=max(1, int(schedule.get("tick_seconds", 60))),
+        log_level=str(logging_cfg.get("level", "INFO")),
+        log_file=str(logging_cfg.get("file", "logs/kino.log")),
+        log_max_bytes=int(logging_cfg.get("max_bytes", 5 * 1024 * 1024)),
+        log_backup_count=int(logging_cfg.get("backup_count", 5)),
+        log_console=bool(logging_cfg.get("console", True)),
+        log_retention_days=int(logging_cfg.get("retention_days", 14)),
+        log_max_total_bytes=int(logging_cfg.get("max_total_bytes", 100 * 1024 * 1024)),
+        log_purge_interval_hours=int(logging_cfg.get("purge_interval_hours", 24)),
     )
+
+    # Валидация расписания: окна парсятся через schedule.parse_windows, мусор
+    # падает на старте (иначе serve молчал бы сутки из-за опечатки). Зона —
+    # тоже проверяется здесь, а не при первом посте.
+    if settings.schedule_windows:
+        try:
+            from kino.schedule import ScheduleConfig, parse_windows
+
+            parsed = parse_windows(settings.schedule_windows)
+            schedule_cfg = ScheduleConfig(
+                windows=parsed,
+                max_posts_per_day=settings.max_posts_per_day,
+                min_gap_minutes=settings.min_gap_minutes,
+                tz=settings.timezone,
+            )
+            # Доступ к .zone проверяет таймзону сразу, а не при первом посте:
+            # негодная зона падает на старте, а не «serve молчит сутки».
+            _ = schedule_cfg.zone
+        except Exception as exc:  # noqa: BLE001 — любая ошибка расписания → ConfigError
+            raise ConfigError(f"неверное расписание в settings.yaml: {exc}") from exc
 
     state_path = Path(os.getenv("STATE_PATH", "data/state.json"))
     if not state_path.is_absolute():
@@ -214,6 +270,10 @@ def load_config(env_file: str | None = None) -> Config:
     stats_path = Path(os.getenv("STATS_PATH", "logs/format_stats.csv"))
     if not stats_path.is_absolute():
         stats_path = ROOT / stats_path
+
+    cache_dir = Path(os.getenv("FEED_CACHE_DIR", "data/feed_cache"))
+    if not cache_dir.is_absolute():
+        cache_dir = ROOT / cache_dir
 
     source_mode = str(os.getenv("SOURCE_MODE", horizon.get("source", "rss"))).strip().lower()
     if source_mode not in ("rss", "horizon"):
@@ -278,6 +338,7 @@ def load_config(env_file: str | None = None) -> Config:
         llm_proxy_url=_resolve_llm_proxy(),
         state_path=state_path,
         stats_path=stats_path,
+        cache_dir=cache_dir,
         source_mode=source_mode,
         horizon_dir=horizon_dir,
         horizon_summaries_dir=horizon_summaries_dir,

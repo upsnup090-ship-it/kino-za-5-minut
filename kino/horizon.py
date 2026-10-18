@@ -36,8 +36,10 @@ _HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$", re.MULTILINE)
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 _BARE_URL_RE = re.compile(r"(?<!\()(https?://[^\s<>)\]]+)")
 # Строка-источник вида "Source: https://..." или "来源: https://...".
+# Класс [^\n] вместо .+? и запрет на \s перед $ — иначе \s съедает перевод
+# строки и регулярка поглощает весь блок вместе с текстом новости.
 _SOURCE_LINE_RE = re.compile(
-    r"^\s*(?:source|источник|来源|출처)\s*[:：]\s*(.+?)\s*$",
+    r"^[ \t]*(?:source|источник|来源|출처)[ \t]*[:：][ \t]*([^\n]*?)[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 # Дата в имени файла: 2026-10-17 или 20261017.
@@ -57,13 +59,19 @@ class HorizonResult:
 
 
 def _strip_markdown(text: str) -> str:
-    """Убирает markdown-разметку, оставляя читаемый текст."""
+    """Убирает markdown-разметку, оставляя читаемый текст.
+
+    Голые URL тоже вырезаются: без этого ссылка из блока попадала в snippet,
+    а оттуда — в промпт и в подпись поста.
+    """
     text = _MD_LINK_RE.sub(r"\1", text)
+    text = _BARE_URL_RE.sub("", text)
     text = re.sub(r"`([^`]*)`", r"\1", text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
     text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*>\s?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
 
 
@@ -286,7 +294,15 @@ def collect_horizon(
         )
 
     # Дата из имени файла — как ts, чтобы choose.py сортировал по свежести.
+    # В имени даты может не быть: тогда берём mtime файла, иначе весь дайджест
+    # уходит в конец очереди с ts=0.
     ts = _parse_date_from_name(path)
+    if not ts:
+        try:
+            ts = path.stat().st_mtime
+            logger.info("в имени %s нет даты, ts берём из mtime файла", path.name)
+        except OSError as exc:
+            logger.warning("не удалось получить mtime %s: %s", path.name, exc)
     if ts:
         for item in result.items:
             item.ts = ts

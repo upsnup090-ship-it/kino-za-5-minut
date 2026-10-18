@@ -207,19 +207,65 @@ def send_poll(
     return _send_with_retry(cfg, "sendPoll", payload)
 
 
+def send_poll_with_caption(
+    cfg: Config,
+    chat_id: str,
+    caption: str,
+    question: str,
+    options: list[str],
+) -> bool:
+    """Опрос вместе с текстом поста.
+
+    Telegram не умеет класть текст в сам опрос, поэтому текст уходит отдельным
+    сообщением перед ним. Без этого вариация poll теряла всю подпись: в канал
+    приходил голый вопрос без заголовка и лида.
+    """
+    if caption.strip() and not send_text(cfg, chat_id, caption):
+        # Текст не ушёл — опрос без него выглядит обрубком, лучше не публиковать.
+        logger.warning("poll: текст поста не отправлен, опрос пропущен")
+        return False
+    return send_poll(cfg, chat_id, question, options)
+
+
 def notify_admin(cfg: Config, text: str) -> None:
-    """Короткое сообщение админу. Без токенов и ключей."""
+    """Короткое сообщение админу. Без токенов и ключей.
+
+    Прокси отвечает через раз (та же беда, что у graph.org), поэтому сетевые
+    сбои повторяются: раньше одна неудачная попытка означала потерянное
+    уведомление о сбое пайплайна. HTTP-статус тоже проверяется — иначе 403
+    (бот не в чате) выглядел бы как успешная доставка.
+    """
     if not cfg.admin_chat_id:
         return
-    try:
-        requests.post(
-            _api_url(cfg.bot_token, "sendMessage"),
-            data={"chat_id": cfg.admin_chat_id, "text": text},
-            timeout=cfg.settings.telegram_timeout,
-            proxies=_proxies(cfg),
-        )
-    except RequestException:
-        logger.warning("не удалось уведомить админа")
+    attempts = max(1, min(3, cfg.settings.retry_max_attempts))
+    for attempt in range(attempts):
+        try:
+            response = requests.post(
+                _api_url(cfg.bot_token, "sendMessage"),
+                data={"chat_id": cfg.admin_chat_id, "text": text},
+                timeout=cfg.settings.telegram_timeout,
+                proxies=_proxies(cfg),
+            )
+        except RequestException as exc:
+            logger.warning(
+                "не удалось уведомить админа: %s (попытка %d/%d)",
+                exc.__class__.__name__,
+                attempt + 1,
+                attempts,
+            )
+            if attempt < attempts - 1:
+                time.sleep(cfg.settings.retry_backoff * (attempt + 1))
+            continue
+        if response.status_code >= 400:
+            # 403 = бот не в чате с админом, 400 = неверный chat_id.
+            logger.warning(
+                "уведомление админу отклонено: HTTP %s %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return
+        return
+    logger.error("уведомление админу не доставлено за %d попыток", attempts)
 
 
 def publish(
@@ -251,7 +297,7 @@ def publish(
         urls = [image_url] + list(extra_images or [])
         sent = send_media_group(cfg, chat, urls, caption)
     elif kind == "poll":
-        sent = send_poll(cfg, chat, poll_question, poll_options)
+        sent = send_poll_with_caption(cfg, chat, caption, poll_question, poll_options)
     elif kind == "link" and not link_url:
         logger.warning("вариация link без link_url — фолбэк на фото")
 

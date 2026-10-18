@@ -1,0 +1,21 @@
+[Unit]
+Description=Kino za 5 minut — Telegram publisher (24/7)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kino
+WorkingDirectory=/opt/kino/project
+EnvironmentFile=/opt/kino/project/.env
+ExecStart=/opt/kino/project/venv/bin/python -m kino serve
+Restart=always
+RestartSec=30
+# Мягкая остановка: serve доигрывает текущий пост и выходит
+KillSignal=SIGTERM
+TimeoutStopSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

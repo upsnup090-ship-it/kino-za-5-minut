@@ -64,7 +64,7 @@ def test_run_dry_run_does_not_save_state(tmp_path):
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft") as mock_draft, \
          patch("kino.pipeline.judge") as mock_judge, \
-         patch("kino.pipeline.find_image") as mock_image, \
+         patch("kino.pipeline.find_image_multi") as mock_image, \
          patch("kino.pipeline.save_state") as mock_save_state, \
          patch("kino.pipeline.StateLock") as mock_lock:
 
@@ -112,7 +112,7 @@ def test_run_publish_saves_state(tmp_path):
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft") as mock_draft, \
          patch("kino.pipeline.judge") as mock_judge, \
-         patch("kino.pipeline.find_image") as mock_image, \
+         patch("kino.pipeline.find_image_multi") as mock_image, \
          patch("kino.pipeline.publish") as mock_publish, \
          patch("kino.pipeline.save_state") as mock_save_state, \
          patch("kino.pipeline.StateLock") as mock_lock:

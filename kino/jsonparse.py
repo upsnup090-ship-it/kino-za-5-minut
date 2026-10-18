@@ -91,14 +91,47 @@ def escape_control_chars(blob: str) -> str:
     return "".join(out)
 
 
+# Признак оборванной фразы в спасённом тексте: модель успела закрыть кавычку,
+# но не закончила мысль. Обрезок уходит в пост как есть, если его не отсечь.
+_OPEN_TAIL_RE = re.compile(r"(?:[«„\"(]|—|\s(?:и|а|но|что|как|по|на|в|с|к|из|за|от|для))\s*$")
+
+
+def _trim_incomplete_tail(value: str) -> str:
+    """Отсекает оборванный хвост у спасённого текста.
+
+    Спасатель берёт значения регуляркой, поэтому в них попадает и незаконченная
+    фраза вида «...где он признался, что «был, по сути…». Такой обрезок в подписи
+    выглядит как ошибка публикации, поэтому режем до последнего законченного
+    предложения, а если его нет — до последнего слова.
+    """
+    text = value.strip()
+    if not text:
+        return ""
+    # Незакрытая кавычка/скобка — явный признак обрыва.
+    if text.count("«") > text.count("»") or text.count("(") > text.count(")"):
+        cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
+        if cut > 0:
+            return text[: cut + 1].strip()
+        return text.rsplit(" ", 1)[0].strip() if " " in text else ""
+    if _OPEN_TAIL_RE.search(text):
+        cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
+        if cut > 0:
+            return text[: cut + 1].strip()
+        return text.rsplit(" ", 1)[0].strip() if " " in text else ""
+    return text
+
+
 def salvage_partial(text: str, keys: tuple[str, ...]) -> dict | None:
-    """Вытаскивает строковые поля из обрезанного JSON.
+    """Вытаскивает поля из обрезанного JSON.
 
     Когда модель упирается в max_tokens, объект остаётся незакрытым. Полный
-    разбор невозможен, но часть строк уже написана — их берём регуляркой,
-    чтобы не терять результат целиком."""
+    разбор невозможен, но часть значений уже написана — их берём регуляркой,
+    чтобы не терять результат целиком. Поддерживаются и строки, и массивы
+    строк: без массива терялись все поля после `hashtags` в обрезанном ответе.
+    """
     found: dict = {}
     for key in keys:
+        # Строковое значение.
         match = re.search(rf'"{re.escape(key)}"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
         if match:
             raw = match.group(1)
@@ -106,6 +139,19 @@ def salvage_partial(text: str, keys: tuple[str, ...]) -> dict | None:
                 found[key] = json.loads(f'"{raw}"')
             except json.JSONDecodeError:
                 found[key] = raw
+            continue
+        # Массив строк: ["a", "b", ...] — в т.ч. незакрытый.
+        match = re.search(rf'"{re.escape(key)}"\s*:\s*\[([^\]]*)', text)
+        if match:
+            items = re.findall(r'"((?:[^"\\]|\\.)*)"', match.group(1))
+            decoded: list[str] = []
+            for item in items:
+                try:
+                    decoded.append(json.loads(f'"{item}"'))
+                except json.JSONDecodeError:
+                    decoded.append(item)
+            if decoded:
+                found[key] = decoded
     return found or None
 
 

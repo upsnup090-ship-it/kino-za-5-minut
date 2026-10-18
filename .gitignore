@@ -7,3 +7,5 @@ venv/
 data/*.json
 data/*.lock
 data/*.txt
+data/*.bak*
+data/feed_cache/

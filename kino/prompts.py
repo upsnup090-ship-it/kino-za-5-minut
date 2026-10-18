@@ -37,8 +37,8 @@ DEFAULT_JUDGE_USER = (
     "Заголовок: {title}\n"
     "Описание: {snippet}\n\n"
     "Черновик: {draft}\n\n"
-    "Верни JSON: verdict, headline, polished_text, question, film, director, "
-    "cast, release, studio, wiki, confidence."
+    "Верни JSON: verdict, reason, headline, text, key_moment, question, hashtags, "
+    "film, director, cast, release, studio, wiki, confidence."
 )
 
 

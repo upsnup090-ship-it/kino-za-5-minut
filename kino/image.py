@@ -32,9 +32,13 @@ logger = logging.getLogger(__name__)
 _WIKI_MIN_INTERVAL = 0.8
 _last_request = 0.0
 
-# Признак фильма в описании статьи: "фильм", "film", "movie", "телесериал".
+# Признак произведения в описании статьи: фильм, сериал, передача, ток-шоу.
+# Без «передача»/«ток-шоу» запрос вида «Saturday Night Live UK» уходил на
+# статью актёра — в пост попадала фотография случайной персоны.
 _FILM_HINT_RE = re.compile(
-    r"\b(фильм|кинофильм|мультфильм|телесериал|сериал|film|movie|series)\b",
+    r"\b(фильм|кинофильм|мультфильм|телесериал|сериал|телепередача|передача|"
+    r"ток-шоу|телешоу|шоу|мультсериал|франшиза|"
+    r"film|movie|series|television|sitcom|show)\b",
     re.IGNORECASE,
 )
 
@@ -124,28 +128,52 @@ def _norm(text: str) -> str:
 def _pick_page(pages: list[dict], query: str) -> dict | None:
     """Выбирает страницу из результатов поиска.
 
-    Wikipedia ранжирует сама и обычно ставит нужную статью первой: для
-    «Братья Коэн» первая — статья о режиссёрах, а не «Фарго». Поэтому
-    первый результат берём как основной. Отбор по слову «фильм» применяем
-    только если первая страница вообще не пересекается с запросом — иначе
-    он уводит на связанный, но другой фильм.
+    Wikipedia ранжирует сама, но для составных запросов («Saturday Night Live
+    UK») первыми часто идут персоны, а не передача или фильм — тогда в пост
+    уходила фотография случайного актёра. Поэтому:
+
+    1. Первая страница — произведение и связана с запросом: берём её
+       (для «Братья Коэн» первая — статья о режиссёрах, и это верный ответ).
+    2. Иначе ищем среди результатов произведение (фильм/сериал/передача),
+       пересекающееся с запросом.
+    3. Если произведения нет — страницу с наибольшим пересечением с запросом,
+       а не просто первую.
     """
     if not pages:
         return None
     first = pages[0]
+    query_words = {w for w in _norm(query).split() if len(w) > 2}
     first_words = set(_norm(first.get("key", "")).split()) | set(
         _norm(first.get("title", "")).split()
     )
-    query_words = {w for w in _norm(query).split() if len(w) > 2}
-    # Первая страница связана с запросом — доверяем ранжированию Wikipedia.
-    if not query_words or (first_words & query_words):
+    first_haystack = f"{first.get('description', '')} {first.get('key', '')}"
+    first_is_work = bool(_FILM_HINT_RE.search(first_haystack))
+
+    if not query_words or (first_is_work and (first_words & query_words)):
         return first
-    # Первая страница не совпала: ищем среди остальных ту, что похожа на фильм.
+
+    # Первая страница — персона или не совпала: ищем произведение.
     for page in pages[1:]:
         haystack = f"{page.get('description', '')} {page.get('key', '')}"
-        if _FILM_HINT_RE.search(haystack):
+        if not _FILM_HINT_RE.search(haystack):
+            continue
+        words = set(_norm(page.get("key", "")).split()) | set(
+            _norm(page.get("title", "")).split()
+        )
+        if not query_words or (words & query_words):
             return page
-    return first
+
+    # Произведения нет: берём страницу с наибольшим пересечением с запросом.
+    best = first
+    best_overlap = len(first_words & query_words)
+    for page in pages[1:]:
+        words = set(_norm(page.get("key", "")).split()) | set(
+            _norm(page.get("title", "")).split()
+        )
+        overlap = len(words & query_words)
+        if overlap > best_overlap:
+            best, best_overlap = page, overlap
+    return best
 
 
 def _summary_thumb(lang: str, key: str, cfg: Config) -> str:
@@ -187,15 +215,6 @@ def _thumb_from_search(page: dict) -> str:
     """Превью прямо из результата поиска — быстрый путь, когда оно есть."""
     thumb = page.get("thumbnail") or {}
     return _clean_url(str(thumb.get("url") or thumb.get("source") or ""))
-
-
-def find_image(wiki_title: str, cfg: Config) -> ImageResult:
-    """Ищет картинку: сначала ru, затем en.
-
-    Поле wiki может прийти как название статьи или как ссылка на википедию —
-    нормализуем через _wiki_query.
-    """
-    return find_image_multi([wiki_title], cfg)
 
 
 def find_image_multi(candidates: list[str], cfg: Config) -> ImageResult:

@@ -3,6 +3,7 @@
 Заголовок новости: {title}
 Описание: {snippet}
 
-Напиши пост для канала в чистом журналистском стиле. Верни JSON с полями:
-headline, text, key_moment, question, hashtags, film, director, cast,
-release, studio, wiki.
+Напиши пост для канала в соответствии с форматом.
+Верни JSON с полями: headline, text, key_moment, question, hashtags,
+film, director, cast, release, studio, wiki,
+poll_options, video_url, infographic, image_candidates.

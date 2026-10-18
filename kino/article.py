@@ -15,6 +15,7 @@ import html
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -28,6 +29,9 @@ API_BASE = "https://api.graph.org"
 TIMEOUT = 30
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = 2.0
+
+# HTML-теги в тексте от модели: сервис принимает в children чистый текст.
+_TAG_RE = re.compile(r"<[^>]*>")
 
 
 def _proxy_config() -> dict | None:
@@ -117,9 +121,16 @@ def load_token(state_path: Path) -> str:
 
 
 def _text_to_nodes(text: str) -> list[dict]:
-    """Текст → узлы статьи: абзацы, пустая строка = перенос блока."""
+    """Текст → узлы статьи: абзацы, пустая строка = перенос блока.
+
+    Модель иногда возвращает HTML (`<b>`, `&amp;`). Сервис принимает в
+    `children` чистый текст, поэтому теги снимаются, а сущности разворачиваются:
+    иначе в статье было бы видно литеральное `<b>жирный</b>`.
+    """
     nodes: list[dict] = []
-    for block in html.unescape(text).split("\n"):
+    plain = html.unescape(text)
+    plain = _TAG_RE.sub("", plain)
+    for block in plain.split("\n"):
         block = block.strip()
         if not block:
             continue
