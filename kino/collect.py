@@ -160,10 +160,12 @@ def _media_urls(entry: dict) -> list[str]:
 
 
 def _video_from_entry(entry: dict) -> tuple[str, str]:
-    """(video_url, poster_url) из media-групп или YouTube-embed'а в описании.
+    """(video_url, poster_url) из media-групп или YouTube-ссылки в тексте.
 
-    Бот сам ничего не скачивает: мы лишь достаём ссылку из текста фида, а
-    картинку-постер Telegram отдаёт как превью по ссылке YouTube.
+    Бот сам ничего не скачивает: video_url идёт в пост-ссылку (Telegram сам
+    рисует превью и играет ролик), а postер — последним запасным кадром в
+    images, когда фид не отдал своих картинок. iframe'ы feedparser вырезает из
+    описания, поэтому ловим только ссылки текстом (watch?v= / youtu.be / embed).
     """
     raw = str(entry.get("media_description") or entry.get("description") or "")
     if isinstance(entry.get("content"), list):
@@ -243,6 +245,13 @@ def _parse_feed(source: Source, payload: bytes, cfg: Config) -> tuple[str, list[
         link = _extract_link(entry)
         if not title or not link:
             continue
+        video_url, poster_url = _video_from_entry(entry)
+        # Картинка поста: сначала кадры из фида, постер YouTube — последним
+        # запасным кадром (Telegram скачивает i.ytimg.com по URL, бот к нему
+        # не ходит). При 4 чужих картинках постеру места не остаётся.
+        images = _media_urls(entry)
+        if poster_url and poster_url not in images:
+            images = (images + [poster_url])[:4]
         items.append(
             FeedItem(
                 source=source.name,
@@ -251,8 +260,8 @@ def _parse_feed(source: Source, payload: bytes, cfg: Config) -> tuple[str, list[
                 pub_date=str(entry.get("published", entry.get("updated", ""))),
                 ts=_extract_ts(entry),
                 snippet=_extract_snippet(entry, cfg.settings.snippet_length),
-                images=_media_urls(entry),
-                video_url=_video_from_entry(entry)[0],
+                images=images,
+                video_url=video_url,
             )
         )
     return source.name, items, None

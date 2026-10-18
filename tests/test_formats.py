@@ -300,3 +300,43 @@ def test_registry_kind_matches_pick_variation():
             assert picked in ("link", "photo")
         else:
             assert picked == kind, f"{fmt}: ожидался {kind}, получен {picked}"
+
+
+# --- постер YouTube как запасной кадр (find: _video_from_entry[1] терялся) ----
+
+def _parse(xml: str):
+    from kino.collect import _parse_feed
+    from kino.config import Config, Settings, Source
+    cfg = Config(settings=Settings())
+    name, items, err = _parse_feed(Source(name="t", url="https://x/feed"), xml.encode(), cfg)
+    assert err is None, err
+    return items[0]
+
+
+def test_youtube_link_gives_video_and_poster_image():
+    item = _parse('<rss version="2.0"><channel><item><title>Trailer</title>'
+                  '<link>https://d.example/1</link>'
+                  '<description>Watch https://www.youtube.com/watch?v=dQw4w9TgXcU</description>'
+                  '</item></channel></rss>')
+    assert item.video_url == "https://www.youtube.com/watch?v=dQw4w9TgXcU"
+    assert item.images == ["https://i.ytimg.com/vi/dQw4w9TgXcU/hqdefault.jpg"]
+
+
+def test_feed_own_images_win_over_youtube_poster():
+    xml = ('<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><item>'
+           '<title>Trailer</title><link>https://d.example/1</link>'
+           '<media:thumbnail url="https://cdn.example/first.jpg"/>'
+           '<description>https://www.youtube.com/watch?v=dQw4w9TgXcU</description>'
+           '</item></channel></rss>')
+    item = _parse(xml)
+    assert item.images[0] == "https://cdn.example/first.jpg"
+    assert "https://i.ytimg.com/vi/dQw4w9TgXcU/hqdefault.jpg" in item.images
+
+
+def test_iframe_embed_is_stripped_by_feedparser_not_matched():
+    """feedparser вырезает iframe — постер берётся только из ссылки-текста."""
+    item = _parse('<rss version="2.0"><channel><item><title>t</title>'
+                  '<link>https://d.example/1</link>'
+                  '<description><![CDATA[<iframe src="https://www.youtube.com/embed/dQw4w9TgXcU"></iframe>]]>'
+                  '</description></item></channel></rss>')
+    assert item.video_url == ""
