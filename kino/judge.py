@@ -6,10 +6,10 @@ import json
 import logging
 import re
 
-import requests
 
 from kino.choose import Choice
 from kino.config import Config
+from kino.draft import DraftError, _post_chat
 from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
 from kino.prompts import judge_system, judge_user
@@ -85,20 +85,12 @@ def _request_judge(
     Ошибка не бросается наружу: вызывающий решает, пробовать ли фолбэк-модель
     или отдавать черновик как есть.
     """
-    proxies = {"http": cfg.llm_proxy_url, "https": cfg.llm_proxy_url} if cfg.llm_proxy_url else None
-    timeout = cfg.settings.llm_timeout
-    if deadline is not None:
-        timeout = deadline.slice(timeout)
     try:
-        response = requests.post(
-            f"{cfg.llm_base_url.rstrip('/')}/chat/completions",
-            json=body,
-            headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
-            timeout=timeout,
-            proxies=proxies,
-        )
-    except requests.RequestException as exc:
-        return None, f"судья недоступен: {exc.__class__.__name__}"
+        response = _post_chat(cfg, body, deadline=deadline)
+    except DraftError as exc:
+        # _post_chat уже отретраил транзиентные сбои (2/4/8с), учёл дедлайн
+        # и LLM_PROXY_URL; сюда доходит только окончательный провал.
+        return None, str(exc)
 
     if response.status_code >= 400:
         detail = response.text[:300]

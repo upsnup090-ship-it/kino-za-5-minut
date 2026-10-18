@@ -113,7 +113,7 @@ def _judge_cfg(**kwargs) -> Config:
 def test_judge_returns_reject_verdict_and_reason():
     cfg = _judge_cfg()
     payload = {"verdict": "reject", "reason": "факт не подтверждён", "headline": "H"}
-    with patch("kino.judge.requests.post", return_value=_judge_response(payload)):
+    with patch("kino.judge._post_chat", return_value=_judge_response(payload)):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
     assert out["verdict"] == "reject"
     assert out["reason"] == "факт не подтверждён"
@@ -123,7 +123,7 @@ def test_judge_keeps_draft_hashtags_when_judge_omits_them():
     cfg = _judge_cfg()
     payload = {"verdict": "accept", "headline": "H2", "text": "T2"}
     draft = {"headline": "H", "text": "T", "hashtags": ["кино"], "key_moment": "🔥 K"}
-    with patch("kino.judge.requests.post", return_value=_judge_response(payload)):
+    with patch("kino.judge._post_chat", return_value=_judge_response(payload)):
         out = judge(_choice(), draft, cfg)
     assert out["hashtags"] == ["кино"]
     assert out["key_moment"] == "🔥 K"
@@ -140,7 +140,7 @@ def test_judge_retries_primary_with_bigger_budget_before_fallback():
             return _judge_response({}, status=500)
         return _judge_response({"verdict": "accept", "headline": "H2"})
 
-    with patch("kino.judge.requests.post", side_effect=fake_post), \
+    with patch("kino.judge._post_chat", side_effect=fake_post), \
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
 
@@ -160,7 +160,7 @@ def test_judge_falls_back_to_second_model():
             return _judge_response({}, status=500)
         return _judge_response({"verdict": "accept", "headline": "H2"})
 
-    with patch("kino.judge.requests.post", side_effect=fake_post), \
+    with patch("kino.judge._post_chat", side_effect=fake_post), \
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
     assert calls[0] == "primary"
@@ -179,7 +179,7 @@ def test_judge_empty_content_with_length_retries_with_bigger_budget():
             return _judge_response("", finish_reason="length", reasoning="р" * 3000)
         return _judge_response({"verdict": "accept", "headline": "H2"})
 
-    with patch("kino.judge.requests.post", side_effect=fake_post), \
+    with patch("kino.judge._post_chat", side_effect=fake_post), \
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
 
@@ -197,7 +197,7 @@ def test_judge_accepts_truncated_but_parsable_response():
         calls.append(json["max_tokens"])
         return _judge_response('{"verdict":"accept","headline":"H2"', finish_reason="length")
 
-    with patch("kino.judge.requests.post", side_effect=fake_post), \
+    with patch("kino.judge._post_chat", side_effect=fake_post), \
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
 
@@ -207,7 +207,7 @@ def test_judge_accepts_truncated_but_parsable_response():
 
 def test_judge_without_fallback_marks_fallback():
     cfg = _judge_cfg()
-    with patch("kino.judge.requests.post", return_value=_judge_response({}, status=500)), \
+    with patch("kino.judge._post_chat", return_value=_judge_response({}, status=500)), \
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
     assert out["verdict"] == "fallback"
@@ -259,3 +259,24 @@ def test_run_does_not_publish_rejected_draft(tmp_path):
     # Ссылку всё равно помечаем использованной, иначе следующий прогон
     # возьмёт ту же новость и снова упрётся в reject.
     mock_save.assert_called_once()
+
+def test_judge_network_error_goes_through_ladder_and_fallback():
+    """Сетевой провал _post_chat не убивает судью: лестница + фолбэк-модель."""
+    from kino.draft import DraftError
+
+    cfg = _judge_cfg(judge_fallback_model="backup")
+    calls: list[str] = []
+
+    def fake_post(cfg_arg, body, **kwargs):
+        calls.append(body["model"])
+        if body["model"] == "primary":
+            raise DraftError("нет соединения с LLM (http://llm.test): ConnectionError")
+        return _judge_response({"verdict": "accept", "headline": "H2"})
+
+    with patch("kino.judge._post_chat", side_effect=fake_post), \
+         patch("kino.judge._notify_fallback"):
+        out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
+
+    # primary: базовый бюджет → удвоенный → фолбэк backup
+    assert calls == ["primary", "primary", "backup"]
+    assert out["verdict"] == "accept"
