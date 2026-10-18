@@ -412,6 +412,148 @@ def test_long_formats_not_cut_by_editorial_cap():
             assert "#кино" in cap and "В?" in cap, f"{fmt}/{kind}: хвост потерян"
 
 
+# --- рендер новых формат-полей (Фаза 3) -------------------------------------
+
+def test_caption_renders_fact_source():
+    cap = build_caption({
+        "headline": "Факт", "text": "Т",
+        "fact_source": "Интервью Variety, 2023",
+    }, "", CFG)
+    assert "📚 Интервью Variety, 2023" in cap
+
+
+def test_caption_renders_news_blocks():
+    cap = build_caption({
+        "headline": "Новость", "text": "Т",
+        "news": {"context": "Было раньше", "whats_next": "Будет дальше", "metric": "$100 млн"},
+    }, "", CFG)
+    assert "🕐 Было раньше" in cap
+    assert "➡️ Будет дальше" in cap
+    assert "📈 $100 млн" in cap
+
+
+def test_caption_renders_when_why_this_date():
+    cap = build_caption({
+        "headline": "Дата", "text": "Т",
+        "announcement": {"date": "1 декабря", "platform": "Netflix",
+                         "what_to_expect": "Финал", "why_this_date": "Юбилей премьеры"},
+    }, "", CFG)
+    assert "1 декабря" in cap
+    assert "Netflix" in cap
+    assert "🗓 Юбилей премьеры" in cap
+
+
+def test_caption_renders_quote_meta():
+    cap = build_caption({
+        "headline": "«Кино — это мечта»", "text": "Т",
+        "quote": {"speaker": "Дени Вильнёв", "occasion": "Канны", "date": "2026"},
+    }, "", CFG)
+    assert "🎙 Дени Вильнёв — Канны — 2026" in cap
+
+
+def test_caption_renders_trailer_highlights():
+    cap = build_caption({
+        "headline": "Трейлер", "text": "Т",
+        "trailer": {"highlights": ["Злодей", "Погоня"], "release_window": "скоро"},
+    }, "", CFG)
+    assert "🎬 Злодей · Погоня" in cap
+    assert "📅 скоро" in cap
+
+
+def test_caption_renders_video_timecodes():
+    cap = build_caption({
+        "headline": "Видео", "text": "Т",
+        "video": {"speakers": "Режиссёр", "timecodes": [{"time": "01:12", "note": "о кастинге"}]},
+    }, "", CFG)
+    assert "👥 Режиссёр" in cap
+    assert "⏱ 01:12 — о кастинге" in cap
+
+
+def test_caption_renders_production_blocks():
+    cap = build_caption({
+        "headline": "Закулисье", "text": "Т",
+        "production": {"problem": "Песок", "solution": "Павильон", "numbers": "47 дублей"},
+    }, "", CFG)
+    assert "🎬 Песок" in cap
+    assert "🛠 Павильон" in cap
+    assert "📊 47 дублей" in cap
+
+
+def test_caption_renders_interview_pairs():
+    cap = build_caption({
+        "headline": "Интервью", "text": "Лид",
+        "interview": [{"q": "Почему?", "a": "Потому что."}],
+    }, "", CFG)
+    assert "**В:** Почему?" in cap
+    assert "**О:** Потому что." in cap
+
+
+def test_caption_renders_collage_items():
+    cap = build_caption({
+        "headline": "Подборка", "text": "Т",
+        "collage": {"theme": "Тема", "items": [{"title": "А", "note": "первый"}]},
+    }, "", CFG)
+    assert "🎞 Тема" in cap
+    assert "• А — первый" in cap
+
+
+def test_caption_renders_riddle_hints():
+    cap = build_caption({
+        "headline": "Загадка", "text": "Т",
+        "riddle": {"question_text": "Кто?", "hints": ["подсказка 1", "подсказка 2"], "answer": "Ответ"},
+    }, "", CFG)
+    assert "💡 подсказка 1" in cap
+    assert "💡 подсказка 2" in cap
+    assert "Ответ" not in cap
+
+
+def test_caption_renders_opinion_blocks():
+    cap = build_caption({
+        "headline": "Мнение", "text": "Т",
+        "opinion": {"counterpoint": "Но", "forecast": "Будет", "reader_takeaway": "Вам"},
+    }, "", CFG)
+    assert "⚖️ Но" in cap
+    assert "🔮 Будет" in cap
+    assert "🎯 Вам" in cap
+
+
+def test_caption_renders_review_criteria_audience_similar():
+    cap = build_caption({
+        "headline": "Обзор", "text": "Т",
+        "review": {"verdict": "Смотреть", "rating": "8/10",
+                   "criteria": [{"name": "Сценарий", "score": "7/10"}],
+                   "audience": "Фанатам", "similar_to": "Дюна"},
+    }, "", CFG)
+    assert "▫️ Сценарий — 7/10" in cap
+    assert "👤 Фанатам" in cap
+    assert "≈ Дюна" in cap
+
+
+def test_caption_renders_comparison_verdict():
+    cap = build_caption({
+        "headline": "Сравнение", "text": "Т",
+        "comparison": {"item_a": "A", "item_b": "B",
+                       "categories": [{"name": "Стиль", "winner": "a", "detail": "x"}],
+                       "verdict": "Выбирайте A"},
+    }, "", CFG)
+    assert "🏁 Выбирайте A" in cap
+
+
+def test_caption_renders_infographic_fact_note():
+    cap = build_caption({
+        "headline": "Цифры", "text": "Т",
+        "infographic": {"title": "Сборы", "facts": [{"label": "Бюджет", "value": "$200 млн", "note": "рекорд"}]},
+    }, "https://wiki/photo.jpg", CFG, include_facts=True)
+    assert "Бюджет" in cap
+    assert "$200 млн" in cap
+    assert "рекорд" in cap
+
+
+def test_long_formats_include_collage_comparison_behind_scenes():
+    from kino.caption import LONG_FORMATS
+    assert {"collage", "comparison", "behind_scenes"} <= LONG_FORMATS
+
+
 def test_photo_hard_limit_survives_raised_editorial_cap():
     """Если кап поднимут выше потолка Telegram, пост не отобьётся."""
     from types import SimpleNamespace

@@ -165,6 +165,7 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
     esc = (lambda s: s) if plain else escape_html
     blocks: list[str] = []
 
+    # 1. announcement (используется также форматом when)
     ann = draft_data.get("announcement")
     if isinstance(ann, dict):
         parts = []
@@ -176,10 +177,101 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
             parts.append(f"📺 {platform}")
         if parts:
             blocks.append(" · ".join(parts))
+        why = _field(ann.get("why_this_date"))
+        if why:
+            blocks.append(f"🗓 {esc(why)}")
         expect = _field(ann.get("what_to_expect"))
         if expect:
             blocks.append(esc(expect))
+        quote = _field(ann.get("creator_quote"))
+        if quote:
+            blocks.append(f"💬 {esc(quote)}")
+        backstory = _field(ann.get("backstory"))
+        if backstory:
+            blocks.append(f"↩️ {esc(backstory)}")
 
+    # 2. news
+    news = draft_data.get("news")
+    if isinstance(news, dict):
+        context = _field(news.get("context"))
+        if context:
+            blocks.append(f"🕐 {esc(context)}")
+        whats_next = _field(news.get("whats_next"))
+        if whats_next:
+            blocks.append(f"➡️ {esc(whats_next)}")
+        metric = _field(news.get("metric"))
+        if metric:
+            blocks.append(f"📈 {esc(metric)}")
+
+    # 3. quote
+    quote = draft_data.get("quote")
+    if isinstance(quote, dict):
+        speaker = _field(quote.get("speaker"))
+        occasion = _field(quote.get("occasion"))
+        date = _field(quote.get("date"))
+        parts = [p for p in (speaker, occasion, date) if p]
+        if parts:
+            blocks.append(f"🎙 {esc(' — '.join(parts))}")
+
+    # 4. trailer
+    trailer = draft_data.get("trailer")
+    if isinstance(trailer, dict):
+        highlights = [h for h in _ensure_list(trailer.get("highlights")) if h]
+        if highlights:
+            blocks.append(f"🎬 {esc(' · '.join(highlights[:3]))}")
+        release_window = _field(trailer.get("release_window"))
+        if release_window:
+            blocks.append(f"📅 {esc(release_window)}")
+
+    # 5. video
+    video = draft_data.get("video")
+    if isinstance(video, dict):
+        speakers = _field(video.get("speakers"))
+        if speakers:
+            blocks.append(f"👥 {esc(speakers)}")
+        timecodes = video.get("timecodes")
+        if isinstance(timecodes, list):
+            tc_rows = 0
+            for tc in timecodes:
+                if not isinstance(tc, dict):
+                    continue
+                time = _field(tc.get("time"))
+                note = _field(tc.get("note"))
+                if time and note:
+                    blocks.append(f"⏱ {esc(time)} — {esc(note)}")
+                    tc_rows += 1
+                if tc_rows >= 3:
+                    break
+
+    # 6. production (behind_the_scenes)
+    production = draft_data.get("production")
+    if isinstance(production, dict):
+        problem = _field(production.get("problem"))
+        if problem:
+            blocks.append(f"🎬 {esc(problem)}")
+        solution = _field(production.get("solution"))
+        if solution:
+            blocks.append(f"🛠 {esc(solution)}")
+        numbers = _field(production.get("numbers"))
+        if numbers:
+            blocks.append(f"📊 {esc(numbers)}")
+
+    # 7. interview
+    interview = draft_data.get("interview")
+    if isinstance(interview, list):
+        pairs = 0
+        for pair in interview:
+            if not isinstance(pair, dict):
+                continue
+            q = _field(pair.get("q"))
+            a = _field(pair.get("a"))
+            if q and a:
+                blocks.append(f"**В:** {esc(q)}\n**О:** {esc(a)}")
+                pairs += 1
+            if pairs >= 4:
+                break
+
+    # 8. review
     rev = draft_data.get("review")
     if isinstance(rev, dict):
         verdict = _field(rev.get("verdict"))
@@ -187,13 +279,33 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
         line = " ".join(x for x in (verdict, f"({rating})" if rating else "") if x)
         if line:
             blocks.append(f"⭐ {esc(line)}")
+        criteria = rev.get("criteria")
+        if isinstance(criteria, list):
+            crit_count = 0
+            for crit in criteria:
+                if not isinstance(crit, dict):
+                    continue
+                name = _field(crit.get("name"))
+                score = _field(crit.get("score"))
+                if name and score:
+                    blocks.append(f"▫️ {esc(name)} — {esc(score)}")
+                    crit_count += 1
+                if crit_count >= 5:
+                    break
         pros = [p for p in _ensure_list(rev.get("pros")) if p]
         cons = [c for c in _ensure_list(rev.get("cons")) if c]
         if pros:
             blocks.append("＋ " + esc(" · ".join(pros[:4])))
         if cons:
             blocks.append("－ " + esc(" · ".join(cons[:4])))
+        audience = _field(rev.get("audience"))
+        if audience:
+            blocks.append(f"👤 {esc(audience)}")
+        similar_to = _field(rev.get("similar_to"))
+        if similar_to:
+            blocks.append(f"≈ {esc(similar_to)}")
 
+    # 9. comparison
     comp = draft_data.get("comparison")
     if isinstance(comp, dict):
         a, b = _field(comp.get("item_a")), _field(comp.get("item_b"))
@@ -218,13 +330,59 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
             if len(rows) >= 4:
                 break
         blocks.extend(rows)
+        verdict = _field(comp.get("verdict"))
+        if verdict:
+            blocks.append(f"🏁 {esc(verdict)}")
 
+    # 10. collage
+    collage = draft_data.get("collage")
+    if isinstance(collage, dict):
+        theme = _field(collage.get("theme"))
+        if theme:
+            blocks.append(f"🎞 {esc(theme)}")
+        items = 0
+        for item in collage.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            title = _field(item.get("title"))
+            note = _field(item.get("note"))
+            if title and note:
+                blocks.append(f"• {esc(title)} — {esc(note)}")
+            elif title:
+                blocks.append(f"• {esc(title)}")
+            items += 1
+            if items >= 4:
+                break
+
+    # 11. riddle
     rid = draft_data.get("riddle")
     if isinstance(rid, dict):
         # Ответ в подпись не берём намеренно: загадка без ответа в тексте.
-        hint = _field(rid.get("hint"))
-        if hint:
+        hints = _ensure_list(rid.get("hints"))
+        if not hints:
+            hint = _field(rid.get("hint"))
+            if hint:
+                hints = [hint]
+        for hint in hints[:3]:
             blocks.append(f"💡 {esc(hint)}")
+
+    # 12. opinion
+    opinion = draft_data.get("opinion")
+    if isinstance(opinion, dict):
+        counterpoint = _field(opinion.get("counterpoint"))
+        if counterpoint:
+            blocks.append(f"⚖️ {esc(counterpoint)}")
+        forecast = _field(opinion.get("forecast"))
+        if forecast:
+            blocks.append(f"🔮 {esc(forecast)}")
+        takeaway = _field(opinion.get("reader_takeaway"))
+        if takeaway:
+            blocks.append(f"🎯 {esc(takeaway)}")
+
+    # 13. facts
+    fact_source = _field(draft_data.get("fact_source"))
+    if fact_source:
+        blocks.append(f"📚 {esc(fact_source)}")
 
     return blocks
 
@@ -246,8 +404,12 @@ def _infographic_block(draft_data: dict, plain: bool = False) -> list[str]:
             continue
         label = _field(fact.get("label"))
         value = _field(fact.get("value"))
+        note = _field(fact.get("note"))
         if label and value:
-            rows.append(f"• {esc(label)} — {esc(value)}")
+            row = f"• {esc(label)} — {esc(value)}"
+            if note:
+                row += f" — {esc(note)}"
+            rows.append(row)
         if len(rows) >= 5:
             break
     title = _field(info.get("title"))
@@ -258,7 +420,7 @@ def _infographic_block(draft_data: dict, plain: bool = False) -> list[str]:
 
 #: Форматы, чей текст не режется редакторским капом: интервью, рецензия,
 #: аналитика — длинные по замыслу, их хвост (вопрос, хэштеги) терять нельзя.
-LONG_FORMATS = {"interview", "review", "opinion"}
+LONG_FORMATS = {"interview", "review", "opinion", "collage", "comparison", "behind_scenes"}
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
