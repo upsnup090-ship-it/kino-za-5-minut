@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import signal
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from kino.config import Config
 from kino.logging_util import purge_old_logs
