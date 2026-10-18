@@ -344,21 +344,24 @@ def test_iframe_embed_is_stripped_by_feedparser_not_matched():
 
 # --- единственная точка обрезки подписи --------------------------------------
 
-def test_text_variation_not_cut_by_photo_limit():
-    """Регресс: текстовый пост резался редакторским лимитом фото (950)."""
+def test_editorial_cap_applies_to_every_variation():
+    """Кап канала (950 из settings.yaml) един для всех вариаций.
+
+    Поднимать его для текста/ссылки/опроса до 4096 — смена голоса канала,
+    это решает только владелец канала через caption.max_length, не код.
+    """
     from kino.config import Config, Settings
     draft = {"headline": "Интервью", "text": "Т" * 3000, "question": "В?",
              "hashtags": ["кино"]}
     cfg = Config(settings=Settings())
-    text_cap = build_caption(draft, "", cfg, kind="text")
-    photo_cap = build_caption(draft, "", cfg, kind="photo")
-    assert len(text_cap) > len(photo_cap)
-    assert len(text_cap) <= 4096
-    assert len(photo_cap) <= 1024
+    caps = [len(build_caption(draft, "", cfg, kind=k))
+            for k in ("photo", "text", "link", "poll", "")]
+    assert max(caps) == min(caps), f"вариации режутся по-разному: {caps}"
+    assert caps[0] <= 1000
 
 
 def test_photo_hard_limit_survives_raised_editorial_cap():
-    """Если мягкий лимит поднимут выше потолка Telegram, пост не отобьётся."""
+    """Если кап поднимут выше потолка Telegram, пост не отобьётся."""
     from types import SimpleNamespace
     cfg = SimpleNamespace(settings=SimpleNamespace(caption_max_length=5000,
                                                   caption_hard_limit=5000))
@@ -366,10 +369,19 @@ def test_photo_hard_limit_survives_raised_editorial_cap():
     assert len(cap) <= 1024
 
 
+def test_raised_editorial_cap_gives_text_full_room():
+    """Подняв кап, текст можно вести до потолка Telegram — но по решению канала."""
+    from types import SimpleNamespace
+    cfg = SimpleNamespace(settings=SimpleNamespace(caption_max_length=5000,
+                                                  caption_hard_limit=5000))
+    cap = build_caption({"headline": "H", "text": "Т" * 6000}, "", cfg, kind="text")
+    assert len(cap) <= 4096
+
+
 def test_no_kind_keeps_editorial_limits():
-    """Вызов без kind (демо, старые тесты) — прежнее поведение 950/1000."""
+    """Вызов без kind (демо, старые тесты) — прежние 950/1000."""
     from types import SimpleNamespace
     cfg = SimpleNamespace(settings=SimpleNamespace(caption_max_length=950,
                                                   caption_hard_limit=1000))
     cap = build_caption({"headline": "H", "text": "Т" * 3000}, "", cfg)
-    assert 900 < len(cap) <= 1000
+    assert 900 < len(cap) <= 950

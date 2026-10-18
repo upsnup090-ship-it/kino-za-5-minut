@@ -290,13 +290,15 @@ def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
         blocks.append(" ".join(f"#{h}" for h in hashtags))
 
     caption = "\n\n".join(blocks)
-    # Единственная точка обрезки. Жёсткий лимит — потолок Telegram для
-    # вариации: 1024 для подписи к фото/карусели, 4096 для текста, ссылки,
-    # опроса. Мягкий (caption_max_length) — стилевой kap канала, он уместен
-    # только там, где Telegram режет сильнее стиля: для текстовых вариаций
-    # стилевой cap резал пост на 950 и сносил хвост с вопросом и хэштегами.
-    hard = caption_limit_for(kind) if kind else cfg.settings.caption_hard_limit
-    soft = min(cfg.settings.caption_max_length, hard) if hard == TELEGRAM_CAPTION_LIMIT else hard
+    # Единая точка обрезки (раньше обрезали дважды, и внешний вызов был
+    # недостижим). Редакторский cap из settings.yaml задаёт стиль канала и
+    # действует на ВСЕ вариации: я не имею права молча менять длину постов.
+    # caption_limit_for — это защитный потолок Telegram (1024 для подписи к
+    # медиа, 4096 для текста): он нужен, если cap поднимут выше лимита
+    # мессенджера, тогда фото-пост не отобьётся, а текстовый не режется зря.
+    ceiling = caption_limit_for(kind) if kind else cfg.settings.caption_hard_limit
+    hard = min(cfg.settings.caption_hard_limit, ceiling)
+    soft = min(cfg.settings.caption_max_length, hard)
     return truncate_caption(caption, max_length=soft, hard_limit=hard)
 
 
