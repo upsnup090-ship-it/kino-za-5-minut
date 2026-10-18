@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _DRAFT_SALVAGE_KEYS = (
     "headline", "text", "key_moment", "question", "hashtags",
     "video_url", "poll_options", "infographic", "image_candidates",
+    "announcement", "review", "comparison", "riddle",
 )
 
 

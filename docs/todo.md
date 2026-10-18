@@ -1,34 +1,41 @@
 # TO-DO: Форматы постов для реализации
 
-## Готово
-1. Текстовый пост — facts/news/when + случайная вариация
-2. Картинка + текст — facts/news/when/quote + photo/text
-3. Статья — facts/news/interview + article→link
-4. Картинка + цитата — quote + photo
-5. Видео + текст — video формат → вариация link (YouTube-превью)
-6. Опрос/викторина — poll формат → вариация poll
-7. Инфографика + текст — infographic формат → QuickChart → photo
-8. Коллаж/монтаж — collage формат → gallery (карусель)
-9. Закулисье — behind_scenes формат → случайная вариация
-10. Интервью/Диалог — interview формат → article
+## Готово — все 15 форматов
+1. facts — интересный факт → случайная вариация
+2. news — оперативная новость → случайная вариация
+3. when — новость с датой → случайная вариация
+4. poll — опрос → poll
+5. quote — цитата → случайная вариация
+6. trailer — трейлер → link
+7. video — видео → link (YouTube-превью)
+8. infographic — инфографика → QuickChart → photo
+9. collage — коллаж → gallery (карусель)
+10. behind_scenes — закулисье → случайная вариация
+11. interview — интервью/диалог → article
+12. announcement — анонс события → случайная вариация
+13. review — рецензия → article
+14. comparison — сравнение → gallery (2 картинки)
+15. riddle — загадка → случайная вариация
+16. opinion — мнение/аналитика → article
 
-## Форматы к доработке (оставшиеся)
-11. Анонс события — нужен формат announcement с датой/платформой
-12. Рецензия — формат review с оценкой и вердиктом
-13. Сравнительный анализ — формат comparison (два фильма/актёра)
-14. Загадка/интерактив — формат riddle с ответом в комментариях
-15. Мнение/аналитика — формат opinion с аналитическим разбором
+## Что изменилось в этом PR
+- config/formats.yaml — 16 форматов с весами
+- prompts/draft_system.txt — полные инструкции для всех 16 форматов
+- prompts/draft_user.txt — все поля в запросе
+- kino/infographic.py — QuickChart-рендер
+- kino/draft.py, kino/judge.py — salvage-ключи для всех новых полей
+- kino/pipeline.py — _FORMAT_TO_KIND (9 маппингов), инфографика, коллаж, сравнение
 
-## Что изменилось в коде
-- config/formats.yaml — 11 форматов с весами (было 6)
-- prompts/draft_system.txt — инструкции для всех 11 форматов + новые JSON-поля
-- prompts/draft_user.txt — новые поля в запросе
-- kino/infographic.py — новый модуль: QuickChart-рендер
-- kino/draft.py — новые salvage-ключи: video_url, poll_options, infographic, image_candidates
-- kino/judge.py — новые salvage-ключи + перенос полей через судью
-- kino/pipeline.py — _FORMAT_TO_KIND маппинг + инфографика + коллаж
+## Свободные форматы (7)
+facts, news, when, quote, behind_scenes, announcement, riddle
+→ случайный выбор вариации через post_variations
 
-## Мелкие доработки (из старого списка)
+## Форматы с фиксированной вариацией (9)
+poll→poll, trailer→link, video→link, infographic→photo,
+collage→gallery, interview→article, review→article,
+comparison→gallery, opinion→article
+
+## Мелкие доработки
 - обрезка подписи
 - потеря текста в poll
 - stale lock

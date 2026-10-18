@@ -6,4 +6,5 @@
 Напиши пост для канала в соответствии с форматом.
 Верни JSON с полями: headline, text, key_moment, question, hashtags,
 film, director, cast, release, studio, wiki,
-poll_options, video_url, infographic, image_candidates.
+poll_options, video_url, infographic, image_candidates,
+announcement, review, comparison, riddle.

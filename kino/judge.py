@@ -35,6 +35,7 @@ def _notify_fallback(cfg: Config, reason: str) -> None:
 _SALVAGE_KEYS = (
     "verdict", "headline", "text", "key_moment", "question", "hashtags", "reason",
     "video_url", "poll_options", "infographic", "image_candidates",
+    "announcement", "review", "comparison", "riddle",
 )
 
 
@@ -226,7 +227,8 @@ def judge(
             if value not in (None, "", []):
                 draft_data[key] = value
         for key in ("film", "director", "cast", "release", "studio", "wiki",
-                     "video_url", "poll_options", "infographic", "image_candidates"):
+                     "video_url", "poll_options", "infographic", "image_candidates",
+                     "announcement", "review", "comparison", "riddle"):
             value = parsed.get(key)
             if value not in (None, ""):
                 draft_data[key] = value

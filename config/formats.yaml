@@ -1,16 +1,21 @@
 # Веса форматов. Сумма не обязана быть 100 — выбор пропорциональный.
 weights:
-  facts: 25
-  news: 18
-  when: 12
-  poll: 8
-  quote: 7
+  facts: 20
+  news: 15
+  when: 10
+  poll: 7
+  quote: 6
   trailer: 5
   video: 5
   infographic: 4
   collage: 5
   behind_scenes: 5
-  interview: 6
+  interview: 5
+  announcement: 5
+  review: 5
+  comparison: 4
+  riddle: 4
+  opinion: 5
 
 # Фильтры тем. Если тема содержит слово из bad — отбрасывается.
 bad:

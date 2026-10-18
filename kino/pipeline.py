@@ -40,6 +40,9 @@ _FORMAT_TO_KIND: dict[str, str] = {
     "interview": "article",  # диалог уходит статьёй
     "poll": "poll",          # опрос
     "trailer": "link",       # трейлер → ссылка с превью видео
+    "review": "article",     # рецензия → статья
+    "comparison": "gallery", # сравнение → карусель (2 картинки)
+    "opinion": "article",    # аналитика → статья
 }
 
 
@@ -321,9 +324,18 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 logger.warning("инфографика: нет данных от LLM, фолбэк на текстовый пост")
                 if kind == "photo" and not image.url:
                     kind = "text"
-        # --- коллаж: ищем картинки по image_candidates ---
-        if choice.format == "collage" and kind == "gallery":
+        # --- коллаж / сравнение: ищем картинки по image_candidates ---
+        if choice.format in ("collage", "comparison") and kind == "gallery":
             candidates = final_data.get("image_candidates")
+            if not isinstance(candidates, list) or len(candidates) < 2:
+                # Для comparison — достаём item_a/item_b из поля comparison.
+                comp = final_data.get("comparison")
+                if isinstance(comp, dict):
+                    candidates = [
+                        str(comp.get("item_a", "") or "").strip(),
+                        str(comp.get("item_b", "") or "").strip(),
+                    ]
+                    candidates = [c for c in candidates if c]
             if isinstance(candidates, list) and len(candidates) >= 2:
                 extra_images = find_images(
                     wiki_title,
@@ -331,8 +343,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                     cfg,
                 )
                 if len(extra_images) < 2:
-                    logger.warning("коллаж: не хватило картинок по image_candidates, фолбэк")
-                    # Пробуем стандартный поиск.
+                    logger.warning("%s: не хватило картинок, фолбэк", choice.format)
                     extra_images = find_images(
                         wiki_title,
                         [str(final_data.get("film", "")), str(final_data.get("director", ""))],
@@ -344,7 +355,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 kind = "link"  # статья уходит постом-ссылкой с превью
             else:
                 kind = "photo"  # статьйник недоступен — фолбэк на фото
-        if kind == "gallery":
+        if kind == "gallery" and not extra_images:
             extra_images = find_images(
                 wiki_title,
                 [str(final_data.get("film", "")), str(final_data.get("director", ""))],
@@ -357,11 +368,16 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             if not poll_q:
                 kind = "photo"  # нет вопроса — фолбэк
         # Вариации с картинкой без картинки не имеют смысла: photo/gallery уходят
-        # текстом. Раньше лог показывал «gallery», а в канал шёл текст — и по
-        # логу нельзя было понять, что реально опубликовано.
+        # текстом. Но если для галереи нашлись extra_images, первая идёт как
+        # основная — сравнение/коллаж не должны терять все картинки разом.
         if kind in ("photo", "gallery") and not image.url:
-            logger.warning("вариация %s без картинки — уходим текстом", kind)
-            kind = "text"
+            if kind == "gallery" and extra_images:
+                image = ImageResult(url=extra_images[0], title="gallery", lang="none")
+                extra_images = extra_images[1:]
+                logger.info("галерея: первая extra-картинка стала основной")
+            else:
+                logger.warning("вариация %s без картинки — уходим текстом", kind)
+                kind = "text"
         if kind != requested_kind:
             logger.info("вариация поста: %s (выбрана %s, фолбэк)", kind, requested_kind)
         else:
