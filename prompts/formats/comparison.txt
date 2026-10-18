@@ -1,5 +1,26 @@
 # comparison
 
-comparison — сравнение двух фильмов/актёров/ремейков. Выбери две сущности из новости и сравни по 3-4 категориям. Поле comparison обязательно:
-{"item_a": "Дюна", "item_b": "Дюна 1984", "categories": [{"name": "Визуальный стиль", "winner": "a", "detail": "..."}]}
-Поле image_candidates — массив из двух строк: [item_a, item_b] для поиска картинок.
+НАЗНАЧЕНИЕ: сравнение двух фильмов, актёров или версий одного фильма.
+
+СТРУКТУРА:
+1. Две сущности.
+2. 3–4 категории сравнения.
+3. Минимум 1 категория, где фаворит проигрывает.
+4. Итог: что выбрать в зависимости от настроения.
+
+ОБЯЗАТЕЛЬНО:
+- comparison.item_a, item_b.
+- comparison.categories — [{name, winner, detail}], winner ∈ {a, b}.
+- comparison.verdict.
+- image_candidates = [item_a, item_b].
+
+ЗАПРЕЩЕНО:
+- Несравнимые категории.
+- Все категории в пользу одного.
+
+ПОЛЯ:
+- comparison: {item_a, item_b, categories: [{name, winner, detail}], verdict}
+- image_candidates: [str]
+
+ПРИМЕР:
+{ "comparison": {"item_a": "Дюна 2021", "item_b": "Дюна 1984", "categories": [{"name": "Визуал", "winner": "a", "detail": "масштабные пейзажи"}, {"name": "Линчевская атмосфера", "winner": "b", "detail": "сюрреализм"}], "verdict": "За масштаб — Вильнёв, за атмосферу — Линч"}, "image_candidates": ["Дюна 2021", "Дюна 1984"] }

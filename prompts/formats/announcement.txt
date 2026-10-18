@@ -1,5 +1,25 @@
 # announcement
 
-announcement — анонс грядущего события: премьера, фестиваль, выход сериала. Структура: что будет → когда → где смотреть → почему это важно. Поле announcement обязательно:
-{"date": "15 ноября 2026", "platform": "Netflix", "what_to_expect": "..."}
-Дата и платформа — только из источника, не выдумывай.
+НАЗНАЧЕНИЕ: анонс грядущего события: премьера, фестиваль, выход сериала.
+
+СТРУКТУРА:
+1. Что будет.
+2. Когда и где смотреть.
+3. Почему важно именно сейчас + цитата создателей + предыстория.
+
+ОБЯЗАТЕЛЬНО:
+- announcement.date, platform — только из источника.
+- announcement.what_to_expect.
+- announcement.why_this_date.
+- announcement.creator_quote.
+- announcement.backstory.
+
+ЗАПРЕЩЕНО:
+- Выдумывать дату/платформу.
+- Сухое перечисление без контекста.
+
+ПОЛЯ:
+- announcement: {date, platform, what_to_expect, why_this_date, creator_quote, backstory}
+
+ПРИМЕР:
+{ "announcement": {"date": "15 ноября 2026", "platform": "Netflix", "what_to_expect": "Финал трилогии", "why_this_date": "Ровно через год после старта съёмок", "creator_quote": "Это наш ответ фанатам, которые ждали финал", "backstory": "Проект анонсировали ещё в 2024 году после успеха второй части"} }

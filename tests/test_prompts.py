@@ -58,7 +58,7 @@ def test_judge_user_renders_placeholders():
 def test_format_spec_loads_existing_file():
     text = prompts.format_spec("facts")
     assert "facts" in text
-    assert "интересный факт" in text
+    assert "fact_source" in text
 
 
 def test_format_spec_missing_file_returns_fallback_and_logs(monkeypatch, tmp_path, caplog):
