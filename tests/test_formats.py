@@ -306,6 +306,35 @@ def test_judge_drop_fields_ignores_invalid_path():
     assert out["review"]["rating"] == "8/10"
 
 
+def test_judge_drop_fields_removes_flat_key():
+    """Судья возвращает плоские имена ("film"), а не только "parent.child".
+
+    Боевой кейс: пост про «Зардоз» — судья просила снять film/release, но код
+    требовал точку в пути и молча пропускал поля.
+    """
+    cfg = SimpleNamespace(
+        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        judge_model="primary", judge_fallback_model="")
+    with patch("kino.judge._request_judge",
+               return_value=({"verdict": "accept", "drop_fields": ["film", "release"]}, "")):
+        out = judge(_choice("trailer"),
+                    {"headline": "H", "text": "T", "film": "Зардоз", "release": "1974",
+                     "director": "Джон Бурман"}, cfg)
+    assert "film" not in out
+    assert "release" not in out
+    assert out["director"] == "Джон Бурман"
+
+
+def test_judge_drop_fields_missing_flat_key_is_noop():
+    cfg = SimpleNamespace(
+        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        judge_model="primary", judge_fallback_model="")
+    with patch("kino.judge._request_judge",
+               return_value=({"verdict": "accept", "drop_fields": ["nonexistent"]}, "")):
+        out = judge(_choice("news"), {"headline": "H", "text": "T"}, cfg)
+    assert out["headline"] == "H"
+
+
 def test_judge_drop_fields_empty_list_is_noop():
     cfg = SimpleNamespace(
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",

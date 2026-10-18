@@ -42,22 +42,36 @@ _SALVAGE_KEYS = (
 
 
 def _drop_fields(draft_data: dict, paths: list) -> None:
-    """Снимает вложенные поля по запросу судьи (например, выдуманный rating).
+    """Снимает поля по запросу судьи (например, выдуманный film или rating).
 
-    Поддерживается один уровень вложенности: "review.rating".
-    Некорректные пути игнорируются с предупреждением.
+    Поддерживаются оба вида пути:
+    - плоское имя верхнего уровня: "film", "release", "wiki";
+    - вложенный путь из двух частей: "review.rating".
+
+    Судья на практике возвращает и то, и другое: для топ-уровневых полей
+    она пишет просто "film", а не "film.something". Раньше плоские имена
+    отбрасывались как «некорректный путь», и выдуманное поле оставалось
+    в посте. Некорректные значения (не строки) игнорируются с warning.
     """
     for path in paths:
-        if not isinstance(path, str) or "." not in path:
+        if not isinstance(path, str) or not path.strip():
             logger.warning("судья: некорректный путь в drop_fields: %r", path)
             continue
-        parent_key, child_key = path.split(".", 1)
-        parent = draft_data.get(parent_key)
-        if isinstance(parent, dict) and child_key in parent:
-            del parent[child_key]
-            logger.info("судья снял поле %s", path)
+        path = path.strip()
+        if "." in path:
+            parent_key, child_key = path.split(".", 1)
+            parent = draft_data.get(parent_key)
+            if isinstance(parent, dict) and child_key in parent:
+                del parent[child_key]
+                logger.info("судья снял поле %s", path)
+            else:
+                logger.warning("судья попросил снять %s, но поле не найдено", path)
         else:
-            logger.warning("судья попросил снять %s, но поле не найдено", path)
+            if path in draft_data:
+                del draft_data[path]
+                logger.info("судья снял поле %s", path)
+            else:
+                logger.warning("судья попросил снять %s, но поле не найдено", path)
 
 
 def parse_judge_json(content: str) -> dict:

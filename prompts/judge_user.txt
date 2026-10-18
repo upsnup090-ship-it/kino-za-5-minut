@@ -21,5 +21,7 @@ film, director, cast, release, studio, wiki, drop_fields.
 announcement, review, comparison, riddle,
 fact_source, news, quote, trailer, video, collage,
 production, interview, opinion).
-Выдуманное поле не затирай пустым значением — перечисли его путь в drop_fields
-(например, ["review.rating"]).
+Выдуманное поле не затирай пустым значением — перечисли его в drop_fields:
+плоское имя ("film", "release", "wiki") или путь через точку ("review.rating").
+Выдуманное необязательное поле — это НЕ повод для reject: снимай его
+через drop_fields и ставь verdict = "accept".
