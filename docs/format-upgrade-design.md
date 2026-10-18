@@ -608,8 +608,7 @@ film, director, cast, release, studio, wiki,
   "headline": "«Дюна: Часть третья» — масштаб есть, темпа нет",
   "text": "…",
   "drop_fields": ["review.rating"],
-  "reason": "",
-  "confidence": 0.86
+  "reason": ""
 }
 ```
 

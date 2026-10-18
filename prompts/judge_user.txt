@@ -14,7 +14,7 @@
 
 Верни JSON с полями решения и правок:
 verdict, reason, headline, text, key_moment, question, hashtags,
-film, director, cast, release, studio, wiki, confidence, drop_fields.
+film, director, cast, release, studio, wiki, drop_fields.
 
 Формат-специфичные поля верни как в черновике, если они верны
 (poll_options, video_url, infographic, image_candidates,

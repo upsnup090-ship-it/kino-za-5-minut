@@ -25,7 +25,6 @@
 - hashtags      — массив из 2-3 релевантных хэштегов без # в начале
 - film, director, cast, release, studio — как в черновике, исправь только явные ошибки
 - wiki          — ТОЛЬКО валидный URL на wikipedia.org, иначе пустая строка
-- confidence    — число от 0 до 1, насколько ты уверен в проверке
 - fact_source, news, quote, trailer, video, collage, production,
   interview, opinion, poll_options, video_url, infographic,
   image_candidates, announcement, review, comparison, riddle

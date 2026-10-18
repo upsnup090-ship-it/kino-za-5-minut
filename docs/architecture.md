@@ -10,12 +10,68 @@ collect → choose → draft → judge → image → caption → publish
 |-----|--------|------|-------|
 | Сбор | `collect.py` / `horizon.py` | `config/sources.yaml` или дайджест Horizon | `CollectResult(items, broken, total, fresh_count)` |
 | Выбор | `choose.py` | `CollectResult.items`, state | `Choice(item, format, quality_score, sad_topic)` |
-| Черновик | `draft.py` | `Choice` | черновик (headline, text, key_moment, question, hashtags, карточка) |
-| Судья | `judge.py` | черновик + источник | финальный текст + `verdict` (accept/reject/fallback) |
+| Черновик | `draft.py` | `Choice` + спецификация формата | черновик (базовые поля + формат-специфичные) |
+| Судья | `judge.py` | черновик + источник + спецификация формата | финальный текст + `verdict` (accept/reject/fallback) + `drop_fields` |
 | Картинка | `image.py` | `wiki` → `film` → `director` | `ImageResult(url, title, lang)` |
 | Подпись | `caption.py` | финальный текст + картинка | `caption` (лимит по вариации: 1024 или 4096) |
-| Статья | `article.py` | заголовок + текст | URL страницы graph.org (Instant View) |
+| Статья | `article.py` | заголовок + текст + форматные поля | URL страницы graph.org (Instant View) |
 | Публикация | `publish.py` | `caption`, `image_url`, `kind` | выбранная вариация → фото → текст → ЛС админу |
+
+## Форматы постов
+
+16 форматов контента, веса — в `config/formats.yaml` → `weights` (сумма 110,
+выбор пропорциональный). Каждому формату соответствует файл спецификации
+`prompts/formats/<fmt>.txt` — он подставляется в запрос к LLM через
+плейсхолдер `{format_spec}` (см. «Промпты»).
+
+| # | format | доставка | формат-специфичное поле |
+|---|--------|----------|--------------------------|
+| 1 | `facts` | случайно | `fact_source` |
+| 2 | `news` | случайно | `news{context, whats_next, metric}` |
+| 3 | `when` | случайно | `announcement{+why_this_date}` |
+| 4 | `poll` | poll | `poll_options` |
+| 5 | `quote` | случайно | `quote{speaker, occasion, date}` |
+| 6 | `trailer` | link | `trailer{highlights, release_window}`, `video_url` |
+| 7 | `video` | link | `video{speakers, timecodes}`, `video_url` |
+| 8 | `infographic` | photo (QuickChart) | `infographic{title, facts[{label, value, note}]}` |
+| 9 | `collage` | gallery | `collage{theme, items[{title, note}]}`, `image_candidates` |
+| 10 | `behind_scenes` | случайно | `production{problem, solution, numbers}` |
+| 11 | `interview` | article | `interview[{q, a}]` |
+| 12 | `announcement` | случайно | `announcement{date, platform, what_to_expect, why_this_date, creator_quote, backstory}` |
+| 13 | `review` | article | `review{verdict, rating, pros, cons, criteria[{name, score}], audience, similar_to}` |
+| 14 | `comparison` | gallery | `comparison{item_a, item_b, categories[{name, winner, detail}], verdict}` |
+| 15 | `riddle` | случайно | `riddle{question_text, hints[], answer, riddle_type}` |
+| 16 | `opinion` | article | `opinion{counterpoint, forecast, reader_takeaway}` |
+
+Форматы 1–7 — короткие «выжимки» (редакторский кап 950), 14–16 и
+`collage`/`comparison`/`behind_scenes` — длинные (`LONG_FORMATS`, не режутся
+капом). Реестр-тесты (`tests/test_format_registry.py`) следят, что веса,
+spec-файлы, `_FORMAT_TO_KIND` и salvage-списки не разъехались.
+
+Траурные темы (`formats.yaml` → `sad`) заменяют формат на безопасный
+(`_SAD_SAFE = {news, facts, quote}`): опрос «какой фильм погибшего актёра
+лучший» — репутационный провал канала.
+
+## Промпты
+
+Промпты вынесены в файлы, чтобы стиль канала правился без правки кода:
+
+| Файл | Роль |
+|------|------|
+| `prompts/draft_system.txt` | роль редактора + сводка базовых и форматных полей + жёсткие правила |
+| `prompts/draft_user.txt` | запрос черновика: `{format}`, `{format_spec}`, источник, чеклист полей ответа |
+| `prompts/judge_system.txt` | роль фактчекера + правила проверки (включая поформатные) |
+| `prompts/judge_user.txt` | запрос судьи: источник, `{format}`, `{format_spec}`, черновик, чеклист ответа |
+| `prompts/formats/<fmt>.txt` | спецификация одного формата (16 файлов) |
+
+Спецификация загружается `prompts.format_spec(fmt)`: файла нет или он пуст —
+громкий `logger.error` и generic fallback, чтобы прогон не падал, но дрейф был
+виден. Единый шаблон spec-файла — 6 секций (НАЗНАЧЕНИЕ, СТРУКТУРА,
+ОБЯЗАТЕЛЬНО, ЗАПРЕЩЕНО, ПОЛЯ, ПРИМЕР); тест-реестр проверяет их наличие.
+
+Раньше все 16 форматов лежали в одном `draft_system.txt` (12.6 КБ) и грузились
+целиком на каждый вызов. Теперь в запрос идут system (~7.7 КБ) + один spec
+(~1 КБ), а инструкций по формату стало больше, не меньше.
 
 ## Вердикт судьи
 
@@ -35,22 +91,50 @@ collect → choose → draft → judge → image → caption → publish
 Если основная модель отбилась, а `JUDGE_FALLBACK_MODEL` задан — проверка
 повторяется на второй модели, и только потом ставится `fallback`.
 
+### Снятие выдуманных полей (`drop_fields`)
+
+Судья не может затереть поле пустым значением: guard в `judge.py` пропускает
+`None`, `""`, `[]`, `{}`, чтобы мусорный ответ не уничтожил данные черновика
+(иначе опрос уходил с вариантами-заглушкой, а инфографика — без фактов).
+
+Для осознанного удаления есть отдельный механизм: судья возвращает
+`drop_fields: ["review.rating"]` — список путей вида `parent.child`
+(поддерживается один уровень вложенности). `_drop_fields` удаляет их после
+переноса полей; некорректный путь или отсутствующее поле логируются и
+игнорируются. Так снимается выдуманная оценка (`review.rating`), не ломая
+остальную рецензию.
+
 ## Подпись
 
-Стиль один: заголовок, текст, ключевой момент, вопрос, хэштеги.
+Стиль один: заголовок, текст, форматные блоки, ключевой момент, вопрос, хэштеги.
 
+- **Форматные блоки** (`_format_block`): у каждого формата свой набор строк —
+  `📅`/`📺`/`🗓`/`💬`/`↩️` (announcement, when), `🕐`/`➡️`/`📈` (news),
+  `🎙` (quote), `🎬`/`📅` (trailer), `👥`/`⏱` (video), `🎬`/`🛠`/`📊` (production),
+  `**В:**`/`**О:**` (interview), `⭐`/`▫️`/`＋`/`－`/`👤`/`≈` (review),
+  `⚖️`/`🏁` (comparison), `🎞` (collage), `💡` (riddle), `⚖️`/`🔮`/`🎯` (opinion),
+  `📚` (facts), `📊` (infographic). Без этого поля, которые LLM заполняет, не
+  попадали в пост: анонс выходил без даты, рецензия — без вердикта.
+- **Инфографика без графика**: если QuickChart не собрался, цифры печатаются
+  текстом (`_infographic_block`, `include_facts=True`) — иначе пост теряет
+  смысл формата.
 - **Обрезка безопасна для HTML.** Текст экранируется до обрезки, поэтому срез
   мог попасть внутрь сущности (`&amp;`) и Telegram отбивал пост с
   `can't parse entities`. Теперь обрезка идёт по границе блока или предложения,
   а хвост чистится от незакрытых сущностей и тегов.
 - **Лимит зависит от вариации** (`caption_limit_for`): подпись к фото и
   медиагруппе — 1024 символа, текст сообщения (`text`, `link`, `poll`) — 4096.
-  Раньше везде применялся общий лимит 1000, из-за чего текстовые посты резались
-  без причины, а подпись к фото не имела запаса до лимита Telegram.
+- **Лимит зависит и от формата** (`LONG_FORMATS`): `interview`, `review`,
+  `opinion`, `collage`, `comparison`, `behind_scenes` не режутся редакторским
+  капом 950 — иначе терялся хвост поста, вопрос и хэштеги. Для галерейных
+  форматов действует потолок 1024 (подпись к медиагруппе), поэтому в схеме
+  жёсткие лимиты по количеству элементов (items ≤4, categories ≤4).
 - **Хэштеги нормализуются** (`normalize_hashtags`): срезается ведущий `#`,
   пробелы заменяются на `_`, дубликаты убираются, мусор от модели (`None`,
   словари, числа) отбрасывается. Промпт просит теги без `#`, но модель это
   нарушает, и код подстраховывает.
+- **`riddle.answer` в подпись не попадает никогда** — ни через `_format_block`,
+  ни через статью; ответ остаётся для разбора в комментариях.
 
 ## Вариации поста
 
@@ -178,11 +262,15 @@ mtime (`STALE_AFTER_SECONDS`, по умолчанию час). Битый или
 
 - `python -m kino run` — dry-run: LLM вызывается, публикации и записи state нет.
 - `python -m kino run --publish` — боевой запуск.
-- `python -m kino draft "тема"` — черновик по заданной теме.
+- `python -m kino draft "тема" [--format FMT] [--dry-run]` — черновик по заданной
+  теме; `--dry-run` печатает только тело запроса к LLM (без вызова и без траты
+  токенов) — удобно для проверки подстановки `{format_spec}`.
+- `python -m kino serve [--dry-run] [--once] [--tick-seconds N]` — работа 24/7:
+  публикует по расписанию (`schedule.windows`), следит за лимитом постов в день
+  и минимальным интервалом. `--once` — один проход и выход (для отладки).
 
-Режима 24/7 (`serve`) пока нет: сейчас один запуск — один пост, расписание
-задаётся внешним cron. План автоматизации и блокеры —
-[`automation.md`](automation.md).
+Расписание: окна вида `"11:00-18:00"` (интервал) и `"22:50"` (точное время),
+таймзона `Europe/Moscow`. Детали автоматизации — [`automation.md`](automation.md).
 
 ## Картинки
 
@@ -210,6 +298,15 @@ mtime (`STALE_AFTER_SECONDS`, по умолчанию час). Битый или
 Когда модель упирается в `max_tokens`, объект остаётся незакрытым — тогда
 включается `salvage_partial`: он достаёт значения регуляркой, и строки, и
 массивы строк (без массивов терялись `hashtags` и всё, что шло после них).
+Спасаемые ключи перечислены в `_DRAFT_SALVAGE_KEYS` (черновик) и `_SALVAGE_KEYS`
+(судья) — туда входят все базовые и формат-специфичные поля, включая
+`fact_source`, `news`, `quote`, `trailer`, `video`, `collage`, `production`,
+`interview`, `opinion`.
+
+**Вложенные объекты salvage не тянет** (осознанно, см. todo.md п.8): если
+`interview[]` или `review.criteria[]` оборвутся, восстановить их нечем. Поэтому
+промпт требует дублировать главный факт и ключевые числа в `text` (правило 9) —
+смысл поста обязан остаться в тексте, даже если structured-поле пропало.
 
 Отдельный случай — reasoning-модель (`glm-5.3-flash`): весь бюджет уходит в
 `reasoning_content`, `content` приходит пустым с `finish_reason=length`.

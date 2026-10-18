@@ -45,7 +45,7 @@ DEFAULT_JUDGE_USER = (
     "Спецификация формата:\n{format_spec}\n\n"
     "Черновик: {draft}\n\n"
     "Верни JSON: verdict, reason, headline, text, key_moment, question, hashtags, "
-    "film, director, cast, release, studio, wiki, confidence, drop_fields."
+    "film, director, cast, release, studio, wiki, drop_fields."
 )
 
 
