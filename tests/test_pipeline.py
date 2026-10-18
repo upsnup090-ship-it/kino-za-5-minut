@@ -157,3 +157,43 @@ def test_pick_variation_weights_and_fallback():
     cfg3 = SimpleNamespace(settings=settings3)
     kind, url = pick_variation(cfg3, {}, "", choice)
     assert (kind, url) == ("link", "https://example.com/a")
+
+
+def test_run_aborts_gracefully_when_draft_fails(tmp_path):
+    """LLM недоступен → не креш под cron/serve, а штатный aborted-результат.
+
+    Боевой кейс 18.10: apimart рвал соединение (RemoteDisconnected), DraftError
+    вылетал в __main__ как «необработанная ошибка» и убивал процесс.
+    """
+    from kino.draft import DraftError
+
+    cfg = _make_config(tmp_path)
+    item = FeedItem(
+        source="test",
+        title="Some movie news",
+        link="http://example.com/1",
+        pub_date="",
+        ts=0.0,
+        snippet="snippet",
+    )
+
+    with patch("kino.pipeline.collect") as mock_collect, \
+         patch("kino.pipeline.choose") as mock_choose, \
+         patch("kino.pipeline.draft") as mock_draft, \
+         patch("kino.pipeline.save_state"), \
+         patch("kino.pipeline.StateLock") as mock_lock:
+
+        mock_lock.return_value.acquire.return_value = True
+        mock_collect.return_value = MagicMock(items=[item], broken=[], total=1, fresh_count=1)
+        mock_choose.return_value = MagicMock(
+            item=item, format="news", quality_score=5, sad_topic=False
+        )
+        mock_draft.side_effect = DraftError(
+            "нет соединения с LLM (https://api.apimart.ai/v1/chat/completions): ConnectionError"
+        )
+
+        result = run(cfg, dry_run=True)
+
+    assert result.aborted is True
+    assert "нет соединения" in result.abort_reason
+    assert result.published is False

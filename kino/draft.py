@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import requests
 
@@ -14,6 +15,10 @@ from kino.jsonparse import parse_json_object
 from kino.prompts import draft_system, draft_user
 
 logger = logging.getLogger(__name__)
+
+# Пауза между попытками лестницы: сбросы соединения и лимиты провайдера
+# обычно транзиентны, секунды хватает, чтобы не долбить в упор.
+_RETRY_DELAY = 2.0
 
 # Поля черновика, которые имеет смысл спасти из обрезанного ответа.
 _DRAFT_SALVAGE_KEYS = (
@@ -67,26 +72,46 @@ def parse_draft(content: str) -> dict:
 
 
 def _post_chat(cfg: Config, body: dict, *, deadline: Deadline | None = None) -> requests.Response:
-    """POST /chat/completions с единой обработкой сетевых ошибок."""
+    """POST /chat/completions с единой обработкой сетевых ошибок.
+
+    Сбросы соединения (RemoteDisconnected и соседи) — транзиентные ошибки
+    провайдера: боевой кейс 18.10, apimart рвал соединение без ответа.
+    Ретраим с паузой 2/4/8с; дедлайн прогона ограничивает суммарное ожидание.
+    Таймаут не ретраим — модель реально думает долго, повтор с тем же
+    запросом вернёт тот же результат.
+    """
     url = f"{cfg.llm_base_url.rstrip('/')}/chat/completions"
     proxies = {"http": cfg.llm_proxy_url, "https": cfg.llm_proxy_url} if cfg.llm_proxy_url else None
-    timeout = cfg.settings.llm_timeout
-    if deadline is not None:
-        timeout = deadline.slice(timeout)
-    try:
-        return requests.post(
-            url,
-            json=body,
-            headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
-            timeout=timeout,
-            proxies=proxies,
-        )
-    except requests.Timeout as exc:
-        raise DraftError(f"таймаут LLM ({cfg.settings.llm_timeout}с)") from exc
-    except requests.ConnectionError as exc:
-        raise DraftError(f"нет соединения с LLM: {url}") from exc
-    except requests.RequestException as exc:
-        raise DraftError(f"ошибка запроса к LLM: {exc.__class__.__name__}") from exc
+    base_timeout = cfg.settings.llm_timeout
+    delays = (2.0, 4.0, 8.0)
+    for attempt in range(len(delays) + 1):
+        timeout = base_timeout
+        if deadline is not None:
+            if deadline.expired:
+                raise DraftError("бюджет прогона исчерпан до запроса к LLM")
+            timeout = deadline.slice(timeout)
+        try:
+            return requests.post(
+                url,
+                json=body,
+                headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
+                timeout=timeout,
+                proxies=proxies,
+            )
+        except requests.Timeout as exc:
+            raise DraftError(f"таймаут LLM ({base_timeout}с)") from exc
+        except requests.ConnectionError as exc:
+            if attempt >= len(delays) or (deadline is not None and deadline.expired):
+                raise DraftError(
+                    f"нет соединения с LLM ({url}): {exc.__class__.__name__}"
+                ) from exc
+            wait = delays[attempt]
+            logger.warning("LLM: соединение сброшено (%s), повтор через %.0fс",
+                           exc.__class__.__name__, wait)
+            time.sleep(wait)
+        except requests.RequestException as exc:
+            raise DraftError(f"ошибка запроса к LLM: {exc.__class__.__name__}") from exc
+    raise DraftError(f"нет соединения с LLM ({url})")  # недостижимо, страховка
 
 
 def _raise_for_api_error(cfg: Config, response: requests.Response) -> None:
@@ -112,7 +137,14 @@ def _request_draft(cfg: Config, body: dict, *, deadline: Deadline | None = None)
     Возвращает (parsed, content, error). Ошибка не бросается: вызывающий решает,
     повторять ли с большим бюджетом.
     """
-    response = _post_chat(cfg, body, deadline=deadline)
+    try:
+        response = _post_chat(cfg, body, deadline=deadline)
+    except DraftError as exc:
+        # Сетевые ошибки идут через лестницу наравне с остальными сбоями:
+        # повтор со следующим бюджетом, в конце — честная ошибка наружу.
+        # API-ошибки (401/429/model_not_found) идут мимо лестницы — их повтор
+        # с тем же запросом бессмыслен.
+        return None, "", str(exc)
     _raise_for_api_error(cfg, response)
 
     try:
@@ -186,6 +218,8 @@ def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> d
                 error,
                 budgets[attempt + 1],
             )
+            if deadline is not None and not deadline.expired:
+                time.sleep(_RETRY_DELAY)
 
     raise DraftError(
         f"черновик не сгенерирован: {last_error}. "

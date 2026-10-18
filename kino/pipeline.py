@@ -14,7 +14,7 @@ from kino.choose import Choice, choose
 from kino.collect import collect
 from kino.config import Config
 from kino.deadline import Deadline, check
-from kino.draft import draft
+from kino.draft import DraftError, draft
 from kino.horizon import collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
 from kino.judge import judge
@@ -357,7 +357,17 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
 
         if not check(deadline, step="черновик"):
             return _abort("бюджет исчерпан до черновика")
-        draft_data = draft(choice, cfg, deadline=deadline)
+        try:
+            draft_data = draft(choice, cfg, deadline=deadline)
+        except DraftError as exc:
+            # LLM недоступен/ошибся — не креш под cron и serve, а штатный
+            # пропуск поста: служба живёт, админ узнаёт о причине.
+            logger.error("черновик не сгенерирован, пост пропущен: %s", exc)
+            if not dry_run:
+                from kino.publish import notify_admin
+
+                notify_admin(cfg, f"пост не опубликован: черновик не сгенерирован ({exc})")
+            return _abort(f"черновик не сгенерирован: {exc}")
         if not check(deadline, step="судья"):
             return _abort("бюджет исчерпан до судьи")
         final_data = judge(choice, draft_data, cfg, deadline=deadline)

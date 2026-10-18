@@ -128,3 +128,59 @@ def test_empty_content_without_length_still_reports_no_json(monkeypatch):
     monkeypatch.setattr("kino.draft.requests.post", lambda *a, **kw: _response("", "stop"))
     with pytest.raises(DraftError, match="пустой ответ"):
         draft(_choice(), _cfg())
+
+# --- сетевые сбои провайдера (боевой кейс apimart 18.10) ---------------------
+
+
+def test_post_chat_retries_on_connection_error():
+    """RemoteDisconnected от провайдера — транзиентно: ретрай, потом успех."""
+    from unittest.mock import patch
+
+    import requests
+
+    from kino.draft import _post_chat
+
+    cfg = _cfg()
+    ok = _response("{}", "stop")
+    calls: list[str] = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        if len(calls) < 3:
+            raise requests.exceptions.ConnectionError("Remote end closed")
+        return ok
+
+    with patch("kino.draft.requests.post", side_effect=fake_post), \
+         patch("kino.draft.time.sleep"):
+        resp = _post_chat(cfg, {"model": "m"})
+
+    assert resp is ok
+    assert len(calls) == 3
+
+
+def test_post_chat_gives_up_after_retries():
+    from unittest.mock import patch
+
+    import requests
+
+    from kino.draft import DraftError, _post_chat
+
+    cfg = _cfg()
+    with patch("kino.draft.requests.post",
+               side_effect=requests.exceptions.ConnectionError("boom")), \
+         patch("kino.draft.time.sleep"):
+        with pytest.raises(DraftError, match="нет соединения"):
+            _post_chat(cfg, {"model": "m"})
+
+
+def test_request_draft_returns_error_on_network_failure():
+    """Сетевая ошибка идёт через лестницу (None, error), а не крешом."""
+    from unittest.mock import patch
+
+    from kino.draft import DraftError, _request_draft
+
+    cfg = _cfg()
+    with patch("kino.draft._post_chat", side_effect=DraftError("нет соединения")):
+        parsed, content, error = _request_draft(cfg, {"model": "m"})
+    assert parsed is None
+    assert "нет соединения" in error
