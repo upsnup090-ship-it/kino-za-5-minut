@@ -36,7 +36,28 @@ _SALVAGE_KEYS = (
     "verdict", "headline", "text", "key_moment", "question", "hashtags", "reason",
     "video_url", "poll_options", "infographic", "image_candidates",
     "announcement", "review", "comparison", "riddle",
+    "fact_source", "news", "quote", "trailer", "video", "collage",
+    "production", "interview", "opinion", "drop_fields",
 )
+
+
+def _drop_fields(draft_data: dict, paths: list) -> None:
+    """Снимает вложенные поля по запросу судьи (например, выдуманный rating).
+
+    Поддерживается один уровень вложенности: "review.rating".
+    Некорректные пути игнорируются с предупреждением.
+    """
+    for path in paths:
+        if not isinstance(path, str) or "." not in path:
+            logger.warning("судья: некорректный путь в drop_fields: %r", path)
+            continue
+        parent_key, child_key = path.split(".", 1)
+        parent = draft_data.get(parent_key)
+        if isinstance(parent, dict) and child_key in parent:
+            del parent[child_key]
+            logger.info("судья снял поле %s", path)
+        else:
+            logger.warning("судья попросил снять %s, но поле не найдено", path)
 
 
 def parse_judge_json(content: str) -> dict:
@@ -225,6 +246,8 @@ def judge(
             "film", "director", "cast", "release", "studio", "wiki",
             "video_url", "poll_options", "infographic", "image_candidates",
             "announcement", "review", "comparison", "riddle",
+            "fact_source", "news", "quote", "trailer", "video", "collage",
+            "production", "interview", "opinion",
         ):
             value = parsed.get(key)
             # Пустые контейнеры тоже затирание: судья часто возвращает [] или {}
@@ -234,6 +257,13 @@ def judge(
             if value is None or value == "" or value == [] or value == {}:
                 continue
             draft_data[key] = value
+
+        # Судья может явно снять выдуманное поле (например, review.rating),
+        # не рискуя затереть его пустым контейнером.
+        drop_paths = parsed.get("drop_fields")
+        if isinstance(drop_paths, list):
+            _drop_fields(draft_data, drop_paths)
+
         draft_data["verdict"] = parsed.get("verdict", "accept")
         if draft_data["verdict"] == "reject":
             reason = str(parsed.get("reason", "") or "").strip()

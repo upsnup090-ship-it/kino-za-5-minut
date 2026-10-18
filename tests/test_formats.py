@@ -279,6 +279,44 @@ def test_judge_nonempty_containers_replace_draft():
                     {"headline": "H", "text": "T", "poll_options": ["A", "B"]}, cfg)
     assert out["poll_options"] == new_opts
 
+
+# --- судья: drop_fields снимает выдуманные поля -----------------------------
+
+def test_judge_drop_fields_removes_nested_path():
+    cfg = SimpleNamespace(
+        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        judge_model="primary", judge_fallback_model="")
+    with patch("kino.judge._request_judge",
+               return_value=({"verdict": "accept", "drop_fields": ["review.rating"]}, "")):
+        out = judge(_choice("review"),
+                    {"headline": "H", "text": "T",
+                     "review": {"verdict": "ok", "rating": "8/10"}}, cfg)
+    assert "rating" not in out["review"]
+    assert out["review"]["verdict"] == "ok"
+
+
+def test_judge_drop_fields_ignores_invalid_path():
+    cfg = SimpleNamespace(
+        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        judge_model="primary", judge_fallback_model="")
+    with patch("kino.judge._request_judge",
+               return_value=({"verdict": "accept", "drop_fields": ["notdict.child", 123]}, "")):
+        out = judge(_choice("review"),
+                    {"headline": "H", "text": "T", "review": {"rating": "8/10"}}, cfg)
+    assert out["review"]["rating"] == "8/10"
+
+
+def test_judge_drop_fields_empty_list_is_noop():
+    cfg = SimpleNamespace(
+        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        judge_model="primary", judge_fallback_model="")
+    with patch("kino.judge._request_judge",
+               return_value=({"verdict": "accept", "drop_fields": []}, "")):
+        out = judge(_choice("review"),
+                    {"headline": "H", "text": "T", "review": {"rating": "8/10"}}, cfg)
+    assert out["review"]["rating"] == "8/10"
+
+
 # --- реестр маппинга: единый источник правды -------------------------------
 
 def test_registry_maps_only_known_variations():

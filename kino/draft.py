@@ -21,10 +21,14 @@ logger = logging.getLogger(__name__)
 _RETRY_DELAY = 2.0
 
 # Поля черновика, которые имеет смысл спасти из обрезанного ответа.
+# Вложенные объекты/массивы (interview[], criteria[]) salvage не тянет —
+# критичные данные дублируются в text (правило 9 draft_system).
 _DRAFT_SALVAGE_KEYS = (
     "headline", "text", "key_moment", "question", "hashtags",
     "video_url", "poll_options", "infographic", "image_candidates",
     "announcement", "review", "comparison", "riddle",
+    "fact_source", "news", "quote", "trailer", "video", "collage",
+    "production", "interview", "opinion",
 )
 
 

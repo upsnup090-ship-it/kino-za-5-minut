@@ -82,3 +82,27 @@ def test_judge_salvage_keys_include_hashtags_and_reason():
 
     assert "hashtags" in _SALVAGE_KEYS
     assert "reason" in _SALVAGE_KEYS
+
+
+def test_draft_salvage_keys_include_new_format_fields():
+    from kino.draft import _DRAFT_SALVAGE_KEYS
+
+    for key in ("fact_source", "news", "quote", "trailer", "video", "collage",
+                "production", "interview", "opinion"):
+        assert key in _DRAFT_SALVAGE_KEYS, key
+
+
+def test_judge_salvage_keys_include_new_format_fields_and_drop_fields():
+    from kino.judge import _SALVAGE_KEYS
+
+    for key in ("fact_source", "news", "quote", "trailer", "video", "collage",
+                "production", "interview", "opinion", "drop_fields"):
+        assert key in _SALVAGE_KEYS, key
+
+
+def test_salvage_new_scalar_field_fact_source():
+    result = parse_json_object(
+        '{"headline":"A","fact_source":"Variety"',
+        salvage_keys=("headline", "fact_source"),
+    )
+    assert result == {"headline": "A", "fact_source": "Variety"}
