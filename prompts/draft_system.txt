@@ -130,6 +130,10 @@
    poll → poll_options. video → video_url. infographic → infographic.
    collage/comparison → image_candidates. announcement → announcement.
    review → review. riddle → riddle. Остальным — оставляй пустыми.
+9. Главный факт и ключевые числа (дата, платформа, бюджет, сборы, рейтинг,
+   вердикт) продублируй коротко в text — поля дополняют текст, а не заменяют
+   его. Если ответ обрежут и structured-поле пропадёт, смысл поста обязан
+   остаться в text.
 
 ===== ПРИМЕР JSON =====
 

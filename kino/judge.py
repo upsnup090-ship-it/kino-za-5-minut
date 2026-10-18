@@ -226,12 +226,19 @@ def judge(
             value = parsed.get(key)
             if value not in (None, "", []):
                 draft_data[key] = value
-        for key in ("film", "director", "cast", "release", "studio", "wiki",
-                     "video_url", "poll_options", "infographic", "image_candidates",
-                     "announcement", "review", "comparison", "riddle"):
+        for key in (
+            "film", "director", "cast", "release", "studio", "wiki",
+            "video_url", "poll_options", "infographic", "image_candidates",
+            "announcement", "review", "comparison", "riddle",
+        ):
             value = parsed.get(key)
-            if value not in (None, ""):
-                draft_data[key] = value
+            # Пустые контейнеры тоже затирание: судья часто возвращает [] или {}
+            # для полей, которых нет в его описании, — реальные данные черновика
+            # терялись, опрос уходил с вариантами-заглушкой, инфографика — без
+            # фактов. Скаляр "" — тоже пропуск.
+            if value is None or value == "" or value == [] or value == {}:
+                continue
+            draft_data[key] = value
         draft_data["verdict"] = parsed.get("verdict", "accept")
         if draft_data["verdict"] == "reject":
             reason = str(parsed.get("reason", "") or "").strip()

@@ -79,6 +79,12 @@ class FeedItem:
     pub_date: str
     ts: float
     snippet: str
+    #: Картинки и видео из самого фида (media:content / enclosure / embed).
+    #: Источник надёжнее Википедии: он даёт кадр именно этой статьи, и
+    #: не нужен, когда LLM ссылку на видео выдумал. Пустые значения —
+    #: фолбэк на старые пути (wiki-поиск, ссылка новости).
+    images: list[str] = field(default_factory=list)
+    video_url: str = ""
 
 
 @dataclass
@@ -120,6 +126,68 @@ def _extract_link(entry: dict) -> str:
         if links:
             link = links[0].get("href", "")
     return str(link).strip()
+
+
+_IMAGE_EXT_RE = re.compile(r"\.(jpe?g|png|webp|gif|avif)(\?|$)", re.IGNORECASE)
+# YouTube в разных ипостасях: embed-iframe, короткая ссылка, watch. Из них
+# получаем и картинку-постер, и ссылку на видео — фиды несут их прямо.
+_YOUTUBE_ID_RE = re.compile(
+    r"(?:youtube\.com/(?:embed/|watch\?(?:.*&)?v=)|youtu\.be/)([A-Za-z0-9_-]{6,})"
+)
+
+
+def _media_urls(entry: dict) -> list[str]:
+    """Прямые URL картинок из media:content / media:thumbnail / enclosure."""
+    urls: list[str] = []
+    for group_key in ("media_thumbnail", "media_content", "enclosures"):
+        for part in entry.get(group_key) or []:
+            if not isinstance(part, dict):
+                continue
+            url = str(part.get("url") or part.get("href") or "").strip()
+            if not url.startswith("http"):
+                continue
+            medium = str(part.get("medium") or "").lower()
+            mime = str(part.get("type") or "").lower()
+            is_image = (
+                mime.startswith("image")
+                or medium == "image"
+                or bool(_IMAGE_EXT_RE.search(url))
+                or (not mime and not medium)
+            )
+            if is_image and url not in urls:
+                urls.append(url)
+    return urls[:4]
+
+
+def _video_from_entry(entry: dict) -> tuple[str, str]:
+    """(video_url, poster_url) из media-групп или YouTube-embed'а в описании.
+
+    Бот сам ничего не скачивает: мы лишь достаём ссылку из текста фида, а
+    картинку-постер Telegram отдаёт как превью по ссылке YouTube.
+    """
+    raw = str(entry.get("media_description") or entry.get("description") or "")
+    if isinstance(entry.get("content"), list):
+        raw += " " + " ".join(
+            item.get("value", "") if isinstance(item, dict) else str(item)
+            for item in entry.get("content") or []
+        )
+    # media:content с medium=video — прямая ссылка на ролик.
+    for part in entry.get("media_content") or []:
+        if not isinstance(part, dict):
+            continue
+        medium = str(part.get("medium") or "").lower()
+        mime = str(part.get("type") or "").lower()
+        url = str(part.get("url") or "").strip()
+        if url.startswith("http") and (medium == "video" or mime.startswith("video")):
+            return url, ""
+    match = _YOUTUBE_ID_RE.search(raw)
+    if match:
+        vid = match.group(1)
+        return (
+            f"https://www.youtube.com/watch?v={vid}",
+            f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+        )
+    return "", ""
 
 
 def _extract_ts(entry: dict) -> float:
@@ -183,6 +251,8 @@ def _parse_feed(source: Source, payload: bytes, cfg: Config) -> tuple[str, list[
                 pub_date=str(entry.get("published", entry.get("updated", ""))),
                 ts=_extract_ts(entry),
                 snippet=_extract_snippet(entry, cfg.settings.snippet_length),
+                images=_media_urls(entry),
+                video_url=_video_from_entry(entry)[0],
             )
         )
     return source.name, items, None

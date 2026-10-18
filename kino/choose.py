@@ -122,6 +122,13 @@ def _shared(a: list[str], b: list[str]) -> int:
     return len(set(a) & set(b))
 
 
+#: Форматы, уместные на траурных/криминальных темах (cfg.sad). Остальные
+#: заменяются на news: опрос «Какой фильм с погибшим актёром лучший?»,
+#: загадка про смерть или сравнение кассовых провалов после трагедии —
+#: репутационный провал канала, а не контент.
+_SAD_SAFE = {"news", "facts", "quote"}
+
+
 def _pick_format(weights: dict[str, int], sad_topic: bool) -> str:
     total = sum(weights.values())
     if total <= 0:
@@ -133,7 +140,7 @@ def _pick_format(weights: dict[str, int], sad_topic: bool) -> str:
         if roll <= 0:
             chosen = fmt
             break
-    if sad_topic and chosen == "when":
+    if sad_topic and chosen not in _SAD_SAFE:
         return "news"
     return chosen
 

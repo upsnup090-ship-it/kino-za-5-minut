@@ -16,7 +16,7 @@ from kino.collect import collect
 from kino.config import Config
 from kino.deadline import Deadline, check
 from kino.draft import draft
-from kino.horizon import HorizonError, collect_horizon
+from kino.horizon import collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
 from kino.judge import judge
 from kino.publish import publish
@@ -59,6 +59,79 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _valid_url(raw: Any) -> str:
+    """http(s)-ссылка или ''. LLM может вернуть «см. в YouTube» вместо URL."""
+    text = str(raw or "").strip()
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    return ""
+
+
+def _pick_image(
+    choice: Choice,
+    final_data: dict,
+    wiki_title: str,
+    cfg: Config,
+    deadline: Deadline | None = None,
+) -> ImageResult:
+    """Картинка поста: сначала иллюстрация из самого фида, потом Википедия.
+
+    media:content/enclosure — это кадр конкретной статьи: он не требует
+    запроса к wiki и не может «уехать» на актёра вместо фильма. Википедия —
+    фолбэк, когда фид картинку не отдал.
+    """
+    feed = [_valid_url(u) for u in choice.item.images]
+    feed = [u for u in feed if u]
+    if feed:
+        return ImageResult(url=feed[0], title="иллюстрация источника", lang="feed")
+    if deadline is None or check(deadline, step="картинка"):
+        return find_image_multi(
+            [
+                wiki_title,
+                str(final_data.get("film", "")).strip(),
+                str(final_data.get("director", "")).strip(),
+            ],
+            cfg,
+        )
+    logger.warning("бюджет исчерпан, картинку пропускаем")
+    return ImageResult()
+
+
+def _gallery_images(
+    wiki_title: str,
+    final_data: dict,
+    choice: Choice,
+    main_url: str,
+    cfg: Config,
+    candidates: list[str] | None = None,
+) -> list[str]:
+    """Картинки карусели: кандидаты из черновика → wiki → иллюстрации фида.
+
+    Дедуп по URL обязателен: одна и та же картинка в sendMediaGroup дважды
+    не пройдёт, а первая уже ушла как main.
+    """
+    urls: list[str] = []
+
+    def add(url: str) -> None:
+        if url and url != main_url and url not in urls:
+            urls.append(url)
+
+    if candidates:
+        for url in find_images(wiki_title, candidates, cfg):
+            add(url)
+    if len(urls) < 2:
+        for url in find_images(
+            wiki_title,
+            [str(final_data.get("film", "")), str(final_data.get("director", ""))],
+            cfg,
+        ):
+            add(url)
+    if len(urls) < 2:
+        for url in choice.item.images:
+            add(_valid_url(url))
+    return urls[:4]
+
+
 def pick_variation(
     cfg: Config,
     draft_data: dict,
@@ -67,36 +140,32 @@ def pick_variation(
 ) -> tuple[str, str]:
     """Выбирает вариацию поста. Возвращает (kind, link_url).
 
-    Если формат контента диктует конкретную вариацию (video→link,
-    infographic→photo, collage→gallery, interview→article, poll→poll,
-    trailer→link) — используется она. Иначе — случайный выбор по весам.
+    Диктуют вариацию 9 форматов (video/trailer→link, infographic→photo,
+    collage/comparison→gallery, interview/review/opinion→article, poll→poll);
+    остальные 7 идут через случайный выбор по весам post_variations.
 
-    link_url: для link — ссылка новости или video_url; для article —
-    заполнится позже в run(); здесь пусто.
+    Ссылка для link — всегда настоящая: сначала видео из фида (реальный
+    embed), потом video_url из черновика (если это URL, а не «посмотри на
+    YouTube»), потом ссылка новости. Выдуманной ссылке тут делать нечего.
     """
-    # Формат контента может диктовать вариацию доставки.
     forced_kind = _FORMAT_TO_KIND.get(choice.format, "")
 
     if forced_kind:
         if forced_kind == "link":
-            # Для video/trailer — берём video_url из черновика, иначе фолбэк
-            # на ссылку новости.
-            video_url = str(draft_data.get("video_url", "") or "").strip()
-            if video_url:
-                logger.info("вариация продиктована форматом %s: %s (video_url)",
-                            choice.format, forced_kind)
-                return "link", video_url
-            link = choice.item.link
-            if link:
-                logger.info("вариация продиктована форматом %s: %s (link новости)",
-                            choice.format, forced_kind)
-                return "link", link
+            url = (
+                _valid_url(choice.item.video_url)
+                or _valid_url(draft_data.get("video_url"))
+                or _valid_url(choice.item.link)
+            )
+            if url:
+                logger.info("вариация продиктована форматом %s: link (%s)",
+                            choice.format, "видео из фида" if _valid_url(choice.item.video_url) == url else "ссылка")
+                return "link", url
             logger.warning("формат %s без ссылки — фолбэк на photo", choice.format)
             return "photo", ""
         logger.info("вариация продиктована форматом %s: %s", choice.format, forced_kind)
         return forced_kind, ""
 
-    # Свободный формат — случайный выбор по весам.
     weights_raw = getattr(cfg.settings, "post_variations", {}) or {}
     if isinstance(weights_raw, dict):
         unknown = sorted(set(weights_raw) - set(_VARIATIONS))
@@ -114,11 +183,13 @@ def pick_variation(
     kind = random.choices(_VARIATIONS, weights=weights, k=1)[0]
 
     if kind == "link":
-        link = choice.item.link
-        if not link:
-            logger.warning("вариация link без ссылки новости — фолбэк на photo")
-            return "photo", ""
-        return "link", link
+        # Превью YouTube из фида играется прямо в посте — это штатный
+        # способ показать видео (сам YouTube мы не трогаем).
+        url = _valid_url(choice.item.video_url) or _valid_url(choice.item.link)
+        if url:
+            return "link", url
+        logger.warning("вариация link без ссылки новости — фолбэк на photo")
+        return "photo", ""
     return kind, ""
 
 
@@ -197,9 +268,40 @@ def record_format_stat(cfg: Config, choice: Choice) -> None:
         logger.warning("не удалось записать статистику формата: %s", exc)
 
 
-def build_caption(draft_data: dict, image_url: str, cfg: Config) -> str:
-    """Собирает подпись из черновика (единственный стиль, см. kino.caption)."""
-    return build_caption_text(draft_data, image_url, cfg)
+def build_caption(draft_data: dict, image_url: str, cfg: Config, kind: str = "",
+                  include_facts: bool = False) -> str:
+    """Собирает подпись из черновика (единственный стиль, см. kino.caption).
+
+    kind и include_facts влияют на состав блоков: опрос не дублирует вопрос,
+    инфографика без картинки отдаёт цифры текстом.
+    """
+    return build_caption_text(draft_data, image_url, cfg, kind=kind,
+                              include_facts=include_facts)
+
+
+def apply_infographic(choice: Choice, final_data: dict,
+                      image: ImageResult) -> tuple[ImageResult, bool]:
+    """Карточка инфографики вместо фото: график QuickChart по полю infographic.
+
+    Возвращает (image, include_facts). Если данные от LLM не сошлись или URL не
+    собрался (длинный/битый), картинка остаётся как была, а include_facts=True
+    просит подпись напечатать цифры текстом: иначе пост теряет смысл формата.
+    """
+    if choice.format != "infographic":
+        return image, False
+
+    from kino.infographic import build_url, validate
+
+    title, facts = validate(final_data.get("infographic"))
+    if not facts:
+        logger.warning("инфографика: нет данных от LLM, цифры уйдут в текст")
+        return image, True
+    url = build_url(title, facts)
+    if not url:
+        logger.warning("инфографика: URL не собрался, цифры уйдут в текст")
+        return image, True
+    logger.info("инфографика: %s (%d фактов)", title, len(facts))
+    return ImageResult(url=url, title=title, lang="infographic"), False
 
 
 def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) -> RunResult:
@@ -272,22 +374,10 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             )
 
         wiki_title = str(final_data.get("wiki", "")).strip()
-        # Картинка — самый низкоприоритетный шаг: если бюджет на исходе,
-        # пост уходит без неё. «Чужая» картинка всё равно не подставляется.
-        if check(deadline, step="картинка"):
-            image = find_image_multi(
-                [
-                    wiki_title,
-                    str(final_data.get("film", "")).strip(),
-                    str(final_data.get("director", "")).strip(),
-                ],
-                cfg,
-            )
-        else:
-            logger.warning("бюджет исчерпан, картинку пропускаем")
-            image = ImageResult()
-
-        caption = build_caption(final_data, image.url, cfg)
+        # Картинка: сначала иллюстрация из самого фида (её отдал источник
+        # новости), затем Википедия, и ничего «чужого». Шаг низкоприоритетный:
+        # при исчерпанном бюджете пост уходит без картинки.
+        image = _pick_image(choice, final_data, wiki_title, cfg, deadline)
 
         # Пишем статью и язык картинки в лог: без этого при разборе «картинка не
         # та» непонятно, по какому кандидату она нашлась (поля ImageResult.title
@@ -303,66 +393,37 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         published = False
         extra_images: list[str] = []
         poll_q, poll_opts = "", []
-        # --- инфографика: рендерим картинку через QuickChart ---
-        infographic_url = ""
-        if choice.format == "infographic":
-            from kino.infographic import build_url as infographic_build_url
-            from kino.infographic import validate as infographic_validate
-
-            info_title, info_facts = infographic_validate(
-                final_data.get("infographic")
-            )
-            if info_facts:
-                infographic_url = infographic_build_url(info_title, info_facts)
-                if infographic_url:
-                    logger.info("инфографика: %s (%d фактов)", info_title, len(info_facts))
-                    # Подменяем картинку на инфографику.
-                    image = ImageResult(url=infographic_url, title=info_title, lang="infographic")
-                else:
-                    logger.warning("инфографика: не удалось собрать URL")
-            else:
-                logger.warning("инфографика: нет данных от LLM, фолбэк на текстовый пост")
-                if kind == "photo" and not image.url:
-                    kind = "text"
-        # --- коллаж / сравнение: ищем картинки по image_candidates ---
-        if choice.format in ("collage", "comparison") and kind == "gallery":
-            candidates = final_data.get("image_candidates")
-            if not isinstance(candidates, list) or len(candidates) < 2:
-                # Для comparison — достаём item_a/item_b из поля comparison.
+        # --- инфографика: график QuickChart вместо фото ---
+        image, include_facts = apply_infographic(choice, final_data, image)
+        # --- галерея collage/comparison: кандидаты → wiki → иллюстрации фида ---
+        if kind == "gallery":
+            candidates: list[str] = []
+            raw = final_data.get("image_candidates")
+            if isinstance(raw, list):
+                candidates = [str(c).strip() for c in raw if str(c).strip()]
+            if len(candidates) < 2:
+                # Для comparison пары берутся из структурированного поля.
                 comp = final_data.get("comparison")
                 if isinstance(comp, dict):
                     candidates = [
-                        str(comp.get("item_a", "") or "").strip(),
-                        str(comp.get("item_b", "") or "").strip(),
+                        c for c in (
+                            str(comp.get("item_a", "") or "").strip(),
+                            str(comp.get("item_b", "") or "").strip(),
+                        ) if c
                     ]
-                    candidates = [c for c in candidates if c]
-            if isinstance(candidates, list) and len(candidates) >= 2:
-                extra_images = find_images(
-                    wiki_title,
-                    [str(c) for c in candidates if str(c).strip()],
-                    cfg,
-                )
-                if len(extra_images) < 2:
-                    logger.warning("%s: не хватило картинок, фолбэк", choice.format)
-                    extra_images = find_images(
-                        wiki_title,
-                        [str(final_data.get("film", "")), str(final_data.get("director", ""))],
-                        cfg,
-                    )
+            extra_images = _gallery_images(
+                wiki_title, final_data, choice, image.url, cfg,
+                candidates=candidates or None,
+            )
+            if len(extra_images) < 2:
+                logger.warning("%s: картинок на карусель не хватило", choice.format)
+                kind = "photo"
         if kind == "article":
             link_url = _publish_article(cfg, final_data, image.url, choice)
             if link_url:
                 kind = "link"  # статья уходит постом-ссылкой с превью
             else:
                 kind = "photo"  # статьйник недоступен — фолбэк на фото
-        if kind == "gallery" and not extra_images:
-            extra_images = find_images(
-                wiki_title,
-                [str(final_data.get("film", "")), str(final_data.get("director", ""))],
-                cfg,
-            )
-            if len(extra_images) < 2:
-                kind = "photo"  # не нашли 2+ картинок — фолбэк
         if kind == "poll":
             poll_q, poll_opts = _build_poll(final_data)
             if not poll_q:
@@ -383,9 +444,16 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         else:
             logger.info("вариация поста: %s", kind)
 
-        # Подпись режется по лимиту своей вариации: у фото и карусели это 1024
-        # символа, у текста и ссылки — 4096. Считаем после выбора вариации,
-        # иначе текстовые посты резались по лимиту фото.
+        # Подпись строится после всех превращений kind: лимит зависит от
+        # вариации (1024 для фото/карусели, 4096 для текста/ссылки), а в опросе
+        # вопрос не должен дублироваться — build_caption получает kind.
+        caption = build_caption(
+            final_data,
+            image.url,
+            cfg,
+            kind=kind,
+            include_facts=include_facts,
+        )
         caption = truncate_caption(
             caption,
             max_length=caption_limit_for(kind),
@@ -457,8 +525,15 @@ def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choi
 
         token = load_token(cfg.state_path.parent / "graph_token.txt")
         title = str(draft_data.get("headline", "")).strip() or "Кино за 5 минут"
+        # Форматные поля (дата анонса, вердикт рецензии, строки сравнения,
+        # подсказка загадки) и цифры инфографики без графика — в тело статьи.
+        # Без этого review/announcement/comparison уходили в graph.org голым
+        # текстом: structured-данные LLM генерировало, но не показывало.
+        from kino.caption import format_fields_plain, md_bold_to_html
+
         body_parts = [
-            str(draft_data.get("text", "")).strip(),
+            md_bold_to_html(str(draft_data.get("text", "")).strip()),
+            *format_fields_plain(draft_data),
             str(draft_data.get("key_moment", "")).strip(),
         ]
         body = "\n\n".join(p for p in body_parts if p)
