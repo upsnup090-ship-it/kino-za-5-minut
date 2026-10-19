@@ -261,7 +261,7 @@ def test_judge_empty_containers_do_not_wipe_draft():
              "infographic": {"title": "T", "facts": []}}
     empty_verdict = {"verdict": "accept", "poll_options": [], "image_candidates": [],
                      "infographic": {}, "headline": "", "text": ""}
-    with patch("kino.judge._request_judge", return_value=(empty_verdict, "")):
+    with patch("kino.judge._request_judge", return_value=(empty_verdict, "", False)):
         out = judge(_choice("poll"), dict(draft), cfg)
     assert out["poll_options"] == draft["poll_options"]
     assert out["image_candidates"] == draft["image_candidates"]
@@ -274,7 +274,7 @@ def test_judge_nonempty_containers_replace_draft():
         judge_model="primary", judge_fallback_model="")
     new_opts = ["Дюна", "Тернир"]
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "poll_options": new_opts}, "")):
+               return_value=({"verdict": "accept", "poll_options": new_opts}, "", False)):
         out = judge(_choice("poll"),
                     {"headline": "H", "text": "T", "poll_options": ["A", "B"]}, cfg)
     assert out["poll_options"] == new_opts
@@ -287,7 +287,7 @@ def test_judge_drop_fields_removes_nested_path():
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "drop_fields": ["review.rating"]}, "")):
+               return_value=({"verdict": "accept", "drop_fields": ["review.rating"]}, "", False)):
         out = judge(_choice("review"),
                     {"headline": "H", "text": "T",
                      "review": {"verdict": "ok", "rating": "8/10"}}, cfg)
@@ -300,7 +300,7 @@ def test_judge_drop_fields_ignores_invalid_path():
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "drop_fields": ["notdict.child", 123]}, "")):
+               return_value=({"verdict": "accept", "drop_fields": ["notdict.child", 123]}, "", False)):
         out = judge(_choice("review"),
                     {"headline": "H", "text": "T", "review": {"rating": "8/10"}}, cfg)
     assert out["review"]["rating"] == "8/10"
@@ -316,7 +316,7 @@ def test_judge_drop_fields_removes_flat_key():
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "drop_fields": ["film", "release"]}, "")):
+               return_value=({"verdict": "accept", "drop_fields": ["film", "release"]}, "", False)):
         out = judge(_choice("trailer"),
                     {"headline": "H", "text": "T", "film": "Зардоз", "release": "1974",
                      "director": "Джон Бурман"}, cfg)
@@ -330,7 +330,7 @@ def test_judge_drop_fields_missing_flat_key_is_noop():
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "drop_fields": ["nonexistent"]}, "")):
+               return_value=({"verdict": "accept", "drop_fields": ["nonexistent"]}, "", False)):
         out = judge(_choice("news"), {"headline": "H", "text": "T"}, cfg)
     assert out["headline"] == "H"
 
@@ -340,7 +340,7 @@ def test_judge_drop_fields_empty_list_is_noop():
         settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
-               return_value=({"verdict": "accept", "drop_fields": []}, "")):
+               return_value=({"verdict": "accept", "drop_fields": []}, "", False)):
         out = judge(_choice("review"),
                     {"headline": "H", "text": "T", "review": {"rating": "8/10"}}, cfg)
     assert out["review"]["rating"] == "8/10"

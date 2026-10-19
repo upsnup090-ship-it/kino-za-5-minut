@@ -189,7 +189,13 @@ def test_judge_empty_content_with_length_retries_with_bigger_budget():
 
 
 def test_judge_accepts_truncated_but_parsable_response():
-    """Обрезанный, но разбираемый ответ не считаем провалом."""
+    """Обрезанный, но разбираемый ответ — повторяем с большим бюджетом.
+
+    Спасённое решение не теряется: если все ступени обрезаны, берём самый полный
+    спасённый вариант, а не помечаем прогон как fallback. Раньше тест требовал
+    одну попытку — это закрепляло баг: salvage считался успехом и лестница
+    бюджетов не запускалась (живая сессия 1, 19.10).
+    """
     cfg = _judge_cfg()
     calls: list[int] = []
 
@@ -201,8 +207,10 @@ def test_judge_accepts_truncated_but_parsable_response():
          patch("kino.judge._notify_fallback"):
         out = judge(_choice(), {"headline": "H", "text": "T"}, cfg)
 
-    assert len(calls) == 1
+    assert len(calls) == 2
+    assert calls[1] > calls[0]
     assert out["verdict"] == "accept"
+    assert out["headline"] == "H2"
 
 
 def test_judge_without_fallback_marks_fallback():
