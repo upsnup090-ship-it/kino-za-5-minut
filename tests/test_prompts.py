@@ -132,3 +132,20 @@ def test_expected_fields_covers_all_formats():
 def test_expected_fields_missing_file_returns_empty(monkeypatch, tmp_path):
     monkeypatch.setattr(prompts, "FORMATS_DIR", tmp_path)
     assert prompts.expected_fields("nope") == []
+
+
+def test_draft_system_bans_placeholder_values():
+    """Правило 10: неизвестное поле — пустое, а не «не объявлена».
+
+    Боевой кейс сессии 1 (19.10): announcement.date/platform = «Не объявлена»
+    попадали в подпись мусорным блоком.
+    """
+    text = prompts.draft_system()
+    assert "Неизвестное поле оставляй пустым" in text
+    assert "не объявлена" in text
+
+
+def test_when_and_announcement_specs_ban_placeholders():
+    for fmt in ("when", "announcement"):
+        spec = prompts.format_spec(fmt)
+        assert "не объявлена" in spec, fmt
