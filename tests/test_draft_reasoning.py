@@ -62,19 +62,23 @@ def test_empty_content_with_length_raises_clear_error(monkeypatch):
 
 def test_truncated_draft_retries_with_bigger_budget(monkeypatch):
     """Reasoning съел бюджет — повторяем с удвоенным max_tokens, а не сдаёмся."""
+    from kino.draft import format_budget
+
     budgets: list[int] = []
 
     def fake_post(url, json=None, **kw):
         budgets.append(json["max_tokens"])
-        # Первый бюджет (1500) съеден reasoning, на удвоенном (3000) выходит.
-        if json["max_tokens"] < 3000:
+        # Первая ступень съедена reasoning, на удвоенной выходит.
+        if len(budgets) == 1:
             return _response("", "length", "р" * 8000)
         return _response('{"headline":"A","text":"B"}')
 
     monkeypatch.setattr("kino.draft.requests.post", fake_post)
     result = draft(_choice(), _cfg())
     assert result["headline"] == "A"
-    assert budgets == [1500, 3000]
+    # Бюджет формата, а не cfg: news — короткий, поэтому лестница от 4096.
+    base = format_budget(_choice().format, _cfg().settings.draft_max_tokens)
+    assert budgets == [base, base * 2]
 
 
 def test_budget_ladder_grows_and_dedupes():
@@ -108,18 +112,22 @@ def test_truncated_but_started_json_retries_for_full_draft(monkeypatch):
     рваные фразы («Вторая причина глуб...»). Теперь обрезка всегда означает
     повтор с большим бюджетом; спасённый вариант остаётся запасным.
     """
+    from kino.draft import format_budget
+
     calls: list[int] = []
 
     def fake_post(url, json=None, **kw):
         calls.append(json["max_tokens"])
-        if json["max_tokens"] < 3000:
+        if len(calls) == 1:
             return _response('{"headline":"A","text":"B"', "length")
         return _response('{"headline":"A","text":"B полный"}')
 
     monkeypatch.setattr("kino.draft.requests.post", fake_post)
     result = draft(_choice(), _cfg())
     assert result["text"] == "B полный"
-    assert calls == [1500, 3000]
+    # Бюджет формата, а не cfg: news — короткий, поэтому лестница от 4096.
+    base = format_budget(_choice().format, _cfg().settings.draft_max_tokens)
+    assert calls == [base, base * 2]
 
 
 def test_all_budgets_truncated_falls_back_to_salvaged(monkeypatch):

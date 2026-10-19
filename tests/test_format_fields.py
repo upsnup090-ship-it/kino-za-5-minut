@@ -5,39 +5,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from kino.jsonparse import balanced_object
+
 ROOT = Path(__file__).resolve().parents[1]
 FORMATS_DIR = ROOT / "prompts" / "formats"
 
 
-def _example_line(text: str) -> str:
-    """Извлекает JSON-строку из секции ПРИМЕР."""
-    in_example = False
-    lines: list[str] = []
-    for line in text.splitlines():
-        if line.strip().startswith("ПРИМЕР:"):
-            in_example = True
-            # пример может быть на той же строке после двоеточия
-            rest = line.split("ПРИМЕР:", 1)[1].strip()
-            if rest:
-                lines.append(rest)
-            continue
-        if in_example:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if stripped.endswith(":") and not lines:
-                # пустой пример-заглушка — пропускаем
-                return ""
-            lines.append(stripped)
-            if lines and lines[-1].endswith("}"):
-                break
-    return " ".join(lines)
+def _example_json(text: str) -> str:
+    """Извлекает JSON-объект из секции ПРИМЕР.
+
+    Пример бывает многострочным и с вложенными объектами, поэтому берём первый
+    сбалансированный объект после «ПРИМЕР:» (тот же приём, что в
+    kino.jsonparse.balanced_object). Прежняя построчная версия обрывала пример
+    на первой строке, кончающейся «}», и ломала collage.txt с вложенным
+    объектом: извлекался обрезанный кусок и тест падал на валидном примере.
+    """
+    marker = "ПРИМЕР:"
+    idx = text.find(marker)
+    if idx < 0:
+        return ""
+    rest = text[idx + len(marker):]
+    start = rest.find("{")
+    if start < 0:
+        # пример-заглушка без JSON — не ошибка
+        return ""
+    return balanced_object(rest, start) or ""
 
 
 def test_all_spec_examples_are_valid_json():
     for path in FORMATS_DIR.glob("*.txt"):
         text = path.read_text(encoding="utf-8")
-        example = _example_line(text)
+        example = _example_json(text)
         if not example:
             continue
         try:
@@ -49,5 +47,5 @@ def test_all_spec_examples_are_valid_json():
 
 def test_facts_example_contains_fact_source():
     text = (FORMATS_DIR / "facts.txt").read_text(encoding="utf-8")
-    example = json.loads(_example_line(text))
+    example = json.loads(_example_json(text))
     assert "fact_source" in example
