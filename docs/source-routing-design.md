@@ -199,7 +199,7 @@ routing:
 
 ### 9.1 Лог работ
 
-**Фаза 2 (19.10, коммиты dd92b34 / 09d4ae0 / 1e8a652, конфиг + валидация, pytest 505).**
+**Фаза 2 (19.10, коммиты dd92b34 / 09d4ae0, конфиг + валидация, pytest 505).**
 `sources.yaml`: поле `kind` у всех 28 фидов (17 `mixed`, 11 `video`). Reddit/boxoffice
 остался `mixed` — решение владельца 5. `formats.yaml`: секция `routing` (16 правил,
 `enabled: true`, `fallback: news`) и смена весов `facts` 20→8, `news` 15→21,
