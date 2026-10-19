@@ -1,66 +1,99 @@
 # Источники RSS/Atom. name — человекочитаемое имя, url — адрес фида.
+# kind — априорный класс фида для маршрутизации формата (Фаза 2,
+# docs/source-routing-design.md §5.1): mixed | video | trailer | boxoffice | archive.
+# `mixed` значит «решает классификатор элемента»; `video` — трейлерно-видео-канал.
 sources:
   # Пресса — ядро достоверности (первоисточники индустрии).
   - name: Deadline
     url: https://deadline.com/feed/
+    kind: mixed
   - name: Variety
     url: https://variety.com/feed/
+    kind: mixed
   - name: THR
     url: https://www.hollywoodreporter.com/hq/wp-feed.php?hpnews=movie
+    kind: mixed
   - name: SlashFilm
     url: https://www.slashfilm.com/feed/
+    kind: mixed
   - name: IndieWire
     url: https://www.indiewire.com/feed/
+    kind: mixed
   - name: Guardian
     url: https://www.theguardian.com/film/rss
+    kind: mixed
   - name: RollingStone
     url: https://www.rollingstone.com/movies/feed/
+    kind: mixed
   - name: AVClub
     url: https://www.avclub.com/rss
+    kind: mixed
   # Reddit: только новостные сабреддиты. TrueFilm/marvelstudios/letterboxd
   # убраны 18.10: лонгриды и фан-сабы дублируют прессу, а каждый Reddit-фид
   # под 429-окном съедает минуты прогона.
+  # boxoffice здесь остаётся mixed (решение владельца 19.10): классификатор
+  # сам вынесет «сборы/касса» в класс boxoffice по маркерам.
   - name: Reddit/movies
     url: https://reddit.com/r/movies/top/.rss?t=day
+    kind: mixed
   - name: Reddit/boxoffice
     url: https://reddit.com/r/boxoffice/top/.rss?t=day
+    kind: mixed
   # YouTube: официальные трейлерные каналы — кормушка форматов trailer/video.
   # С боевого сервера RSS живые (в песочнице был SSLError — отсюда старое
   # удаление 4b3e777; на сервере фиды отдают по 15 записей).
   - name: YT/IGN
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw
+    kind: video
   - name: YT/SonyPicturesTV
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCghNDC2eT10D3TsiB2ooWow
+    kind: video
   - name: YT/A24
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCuPivVjnfNo4mb3Oog_frZg
+    kind: video
   - name: YT/Netflix
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCWOA1ZGywLbqmigxE4Qlvuw
+    kind: video
   - name: YT/Universal
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCq0OueAsdxH6b8nyAspwViw
+    kind: video
   - name: YT/Paramount
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCF9imwPMSGz4Vq1NiTWCC7g
+    kind: video
   - name: YT/SonyPictures
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCz97F7dMxBNOfGYu3rx8aCw
+    kind: video
   - name: YT/Lionsgate
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCJ6nMHaJPZvsJ-HmUmj1SeA
+    kind: video
   - name: YT/RottenTomatoes
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCE0Wkd9Jcn2-TNo5G8bLQrA
+    kind: video
   - name: YT/ScreenRant
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UC2iUwfYi_1FCGGqhOUNx-iA
+    kind: video
   - name: YT/Variety
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCgRQHK8Ttr1j9xCEpCAlgbQ
+    kind: video
   # Азия и Россия — региональный охват, включая российский кинорынок.
   - name: THR/Asia
     url: https://www.hollywoodreporter.com/t/asia/feed/
+    kind: mixed
   - name: SCMP/Culture
     url: https://www.scmp.com/rss/4/feed
+    kind: mixed
   - name: JapanTimes/Culture
     url: https://www.japantimes.co.jp/feed/
+    kind: mixed
   - name: CNA/Entertainment
     url: https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416
+    kind: mixed
   - name: Yonhap/Entertainment
     url: https://www.yna.co.kr/rss/entertainment.xml
+    kind: mixed
   - name: InterMedia
     url: https://www.intermedia.ru/rss/news
+    kind: mixed
   - name: Film.ru
     url: https://www.film.ru/rss.xml
+    kind: mixed

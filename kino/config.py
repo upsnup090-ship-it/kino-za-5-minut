@@ -22,6 +22,7 @@ class ConfigError(Exception):
 class Source:
     name: str
     url: str
+    kind: str = "mixed"  # априорный класс фида: mixed | video | trailer | boxoffice | archive
 
 
 @dataclass
@@ -77,6 +78,7 @@ class Config:
     weights: dict[str, int] = field(default_factory=dict)
     bad: list[str] = field(default_factory=list)
     sad: list[str] = field(default_factory=list)
+    routing: dict[str, object] = field(default_factory=dict)  # formats.yaml: routing
     settings: Settings = field(default_factory=Settings)
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -166,7 +168,13 @@ def load_config(env_file: str | None = None) -> Config:
         url = str(item.get("url", "")).strip()
         if not name or not url:
             raise ConfigError("sources.yaml: у источника должны быть name и url")
-        sources.append(Source(name=name, url=url))
+        kind = str(item.get("kind", "mixed")).strip().lower()
+        if kind not in ("mixed", "video", "trailer", "boxoffice", "archive"):
+            raise ConfigError(
+                f"sources.yaml: неизвестный kind {kind!r} у источника {name!r}. "
+                "Допустимые: mixed, video, trailer, boxoffice, archive."
+            )
+        sources.append(Source(name=name, url=url, kind=kind))
     if not sources:
         raise ConfigError("sources.yaml: список источников пуст")
 
@@ -174,6 +182,7 @@ def load_config(env_file: str | None = None) -> Config:
     weights = formats.get("weights", {})
     bad = formats.get("bad", [])
     sad = formats.get("sad", [])
+    routing_raw = formats.get("routing", {})
     if not isinstance(weights, dict) or not weights:
         raise ConfigError("formats.yaml: weights должен быть непустым словарём")
     for key, value in weights.items():
@@ -186,6 +195,53 @@ def load_config(env_file: str | None = None) -> Config:
         for item in items:
             if not isinstance(item, str):
                 raise ConfigError(f"formats.yaml: {key} содержит не строку: {item!r}")
+
+    # Валидация routing: все форматы из weights должны иметь правило.
+    from kino.routing import DEFAULT_ROUTING, KINDS, SIGNALS
+
+    # Проверка типа ДО dict(): список или строка иначе дают ValueError вместо
+    # понятной ошибки конфигурации.
+    if routing_raw and not isinstance(routing_raw, dict):
+        raise ConfigError("formats.yaml: routing должен быть словарём")
+    # Секции нет вовсе — берём канон из кода: опциональная секция не должна
+    # ронять загрузку. Но если секция ЕСТЬ и в ней не хватает правила —
+    # ошибка ниже: случайно удалённое правило должно быть громким, а не
+    # превращаться в тихий мёртвый формат.
+    routing = dict(routing_raw) if routing_raw else dict(DEFAULT_ROUTING)
+    enabled = routing.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("formats.yaml: routing.enabled должен быть boolean")
+    fallback = routing.get("fallback", "news")
+    if not isinstance(fallback, str):
+        raise ConfigError("formats.yaml: routing.fallback должна быть строкой")
+    for fmt, rule in routing.items():
+        if fmt in ("enabled", "fallback"):
+            continue
+        if not isinstance(rule, dict):
+            raise ConfigError(f"formats.yaml: routing.{fmt} должен быть словарём")
+        kinds = rule.get("kinds") or []
+        require = rule.get("require") or []
+        if not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds):
+            raise ConfigError(f"formats.yaml: routing.{fmt}.kinds должен быть списком строк")
+        if not isinstance(require, list) or not all(isinstance(s, str) for s in require):
+            raise ConfigError(f"formats.yaml: routing.{fmt}.require должен быть списком строк")
+        unknown_kinds = set(kinds) - set(KINDS)
+        if unknown_kinds:
+            raise ConfigError(
+                f"formats.yaml: routing.{fmt}.kinds содержит неизвестные классы: {unknown_kinds}"
+            )
+        unknown_signals = set(require) - set(SIGNALS)
+        if unknown_signals:
+            raise ConfigError(
+                f"formats.yaml: routing.{fmt}.require содержит неизвестные требования: {unknown_signals}"
+            )
+    # Все форматы из weights должны иметь правило (иначе мёртвые форматы).
+    missing_rules = [fmt for fmt in weights if fmt not in routing and fmt != "fallback"]
+    if missing_rules:
+        raise ConfigError(
+            f"formats.yaml: нет правил маршрутизации для {missing_rules}. "
+            "Добавьте их в routing или используйте DEFAULT_ROUTING из kino.routing."
+        )
 
     settings_raw = _load_yaml(CONFIG_DIR / "settings.yaml")
     collect = settings_raw.get("collect", {})
@@ -327,6 +383,7 @@ def load_config(env_file: str | None = None) -> Config:
         weights={str(k): int(v) for k, v in weights.items()},
         bad=[str(x) for x in bad],
         sad=[str(x) for x in sad],
+        routing=routing,
         settings=settings,
         llm_base_url=llm_base_url,
         llm_api_key=llm_api_key,

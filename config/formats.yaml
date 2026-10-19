@@ -1,8 +1,8 @@
 # Веса форматов. Сумма не обязана быть 100 — выбор пропорциональный.
 weights:
-  facts: 20
-  news: 15
-  when: 10
+  facts: 8
+  news: 21
+  when: 16
   poll: 7
   quote: 6
   trailer: 5
@@ -141,3 +141,100 @@ sad:
   - "scandal"
   - "backlash"
   - "controversy"
+
+# Маршрутизация формата по типу материала (Фаза 2, docs/source-routing-design.md §4).
+# Формат допущен, если класс материала ∈ kinds И требования require выполнены.
+# Пустой kinds = «любой класс» (так устроен news — он же фолбэк).
+# Секцию можно удалить целиком: тогда берётся DEFAULT_ROUTING из kino/routing.py.
+routing:
+  enabled: true
+  fallback: news
+  news:
+    kinds: []
+    require: []
+  when:
+    kinds:
+      - release_date
+      - festival
+    require:
+      - date
+  announcement:
+    kinds:
+      - release_date
+      - news
+    require:
+      - date
+  trailer:
+    kinds:
+      - trailer
+    require:
+      - video
+  video:
+    kinds:
+      - video
+      - trailer
+    require:
+      - video
+  quote:
+    kinds:
+      - interview
+      - news
+    require:
+      - speaker
+  interview:
+    kinds:
+      - interview
+    require: []
+  review:
+    kinds:
+      - review
+    require: []
+  infographic:
+    kinds:
+      - boxoffice
+      - release_date
+      - festival
+      - news
+    require:
+      - number
+  facts:
+    kinds:
+      - archive
+      - production
+      - interview
+      - analysis
+    require: []
+  behind_scenes:
+    kinds:
+      - production
+    require: []
+  comparison:
+    kinds:
+      - review
+      - boxoffice
+      - analysis
+    require: []
+  opinion:
+    kinds:
+      - analysis
+      - review
+    require: []
+  collage:
+    kinds:
+      - archive
+      - production
+      - festival
+      - news
+    require: []
+  riddle:
+    kinds:
+      - archive
+      - production
+    require: []
+  poll:
+    kinds:
+      - news
+      - festival
+      - boxoffice
+      - release_date
+    require: []
