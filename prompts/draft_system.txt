@@ -30,35 +30,8 @@
 
 ===== ФОРМАТ-СПЕЦИФИЧНЫЕ ПОЛЯ =====
 
-Точные требования к полям текущего формата — в спецификации формата.
-Ниже — сводка всех полей, чтобы ты не пропустил нужное:
-
-- fact_source     — строка: откуда факт (facts).
-- news            — объект {context, whats_next, metric} (news).
-- announcement    — объект {date, platform, what_to_expect, why_this_date,
-                    creator_quote, backstory} (when, announcement).
-- poll_options    — массив из 4 конкретных вариантов ответа (poll).
-- quote           — объект {speaker, occasion, date} (quote).
-- trailer         — объект {highlights: [str], release_window} (trailer).
-- video           — объект {speakers, timecodes: [{time, note}]} (video).
-- video_url       — полная ссылка на YouTube/видео из источника (video, trailer).
-- infographic     — объект {title, facts: [{label, value, note}]}, минимум 3 факта
-                    с числами (infographic).
-- image_candidates — массив 2-4 названий для поиска картинок (collage, comparison, quote).
-- collage         — объект {theme, items: [{title, note}]} (collage).
-- production      — объект {problem, solution, numbers} (behind_scenes).
-- interview       — массив 3-4 пар [{q, a}] (interview).
-- review          — объект {verdict, rating, pros, cons,
-                    criteria: [{name, score}], audience, similar_to} (review).
-                    rating и criteria — только если есть в источнике.
-- comparison      — объект {item_a, item_b,
-                    categories: [{name, winner, detail}], verdict} (comparison).
-                    winner — "a" или "b".
-- riddle          — объект {question_text, hints: [str], answer, riddle_type}
-                    (riddle). Ответ в пост не попадает.
-
-Заполняй только поля своего формата. Остальные оставляй пустыми:
-[] для массивов, null для объектов, "" для строк.
+Состав и требования к полям текущего формата — в спецификации формата
+в запросе пользователя. Заполняй только поля своего формата.
 
 ===== ЖЁСТКИЕ ПРАВИЛА =====
 
@@ -89,22 +62,9 @@
   "cast": "",
   "release": "",
   "studio": "",
-  "wiki": "",
-  "fact_source": "",
-  "news": null,
-  "quote": null,
-  "trailer": null,
-  "video": null,
-  "collage": null,
-  "production": null,
-  "interview": null,
-  "opinion": null,
-  "poll_options": [],
-  "video_url": "",
-  "infographic": null,
-  "image_candidates": [],
-  "announcement": null,
-  "review": null,
-  "comparison": null,
-  "riddle": null
+  "wiki": "", "fact_source": "", "video_url": "",
+  "news": null, "quote": null, "trailer": null, "video": null, "collage": null,
+  "production": null, "interview": null, "opinion": null, "infographic": null,
+  "announcement": null, "review": null, "comparison": null, "riddle": null,
+  "poll_options": [], "image_candidates": []
 }
