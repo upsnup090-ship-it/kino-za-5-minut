@@ -92,3 +92,22 @@ def test_render_unknown_key_keeps_placeholder():
     text = prompts.render("привет {name}, {missing}", name="Арнольд")
     assert "Арнольд" in text
     assert "{missing}" in text
+
+
+#: Лимит system-промпта в байтах. Критерий дизайн-дока (п.12.4): после
+#: рефактора промпт сжат 12.6 КБ → ~6 КБ. Регресс 94178e0 раздул файл до
+#: 7.7 КБ незаметно (ни один тест за размером не следил) — держим потолок.
+_DRAFT_SYSTEM_MAX_BYTES = 6000
+
+
+def test_draft_system_prompt_within_budget():
+    """system-промпт не распухает: держим ≤ 6000 байт.
+
+    Если тест упал — скорее всего в draft_system.txt снова продублировали
+    состав полей, который уже есть в prompts/formats/*.txt и draft_user.txt.
+    """
+    size = len(prompts.draft_system().encode("utf-8"))
+    assert size <= _DRAFT_SYSTEM_MAX_BYTES, (
+        f"draft_system.txt распух до {size} Б (лимит {_DRAFT_SYSTEM_MAX_BYTES}). "
+        "Проверь, не дублирует ли он spec-файлы prompts/formats/*.txt."
+    )
