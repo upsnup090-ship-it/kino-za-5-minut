@@ -111,56 +111,64 @@ def _request_judge(
     body: dict,
     *,
     deadline: Deadline | None = None,
-) -> tuple[dict | None, str]:
-    """Один вызов судьи. Возвращает (parsed, error).
+) -> tuple[dict | None, str, bool]:
+    """Один вызов судьи. Возвращает (parsed, error, truncated).
 
-    Ошибка не бросается наружу: вызывающий решает, пробовать ли фолбэк-модель
-    или отдавать черновик как есть.
+    Ошибка не бросается наружу: вызывающий решает, пробовать ли следующий
+    бюджет или фолбэк-модель.
+
+    truncated=True означает finish_reason="length": ответ оборвался по
+    max_tokens. Даже если salvage что-то вытащил (parsed не None), это НЕ
+    полноценное решение судьи — хвост ответа (drop_fields, поздние формат-поля)
+    потерян, поэтому вызывающий обязан попробовать больший бюджет. Без этого
+    флага лестница бюджетов не работала: salvage считался успехом и повтор
+    не запускался (боевой кейс — сессия 1, 19.10).
     """
     try:
         response = _post_chat(cfg, body, deadline=deadline)
     except DraftError as exc:
         # _post_chat уже отретраил транзиентные сбои (2/4/8с), учёл дедлайн
         # и LLM_PROXY_URL; сюда доходит только окончательный провал.
-        return None, str(exc)
+        return None, str(exc), False
 
     if response.status_code >= 400:
         detail = response.text[:300]
         logger.warning("судья вернул %s: %s", response.status_code, detail)
-        return None, f"судья вернул HTTP {response.status_code}"
+        return None, f"судья вернул HTTP {response.status_code}", False
 
     try:
         data = response.json()
     except ValueError:
-        return None, "судья вернул не-JSON"
+        return None, "судья вернул не-JSON", False
 
     choices = data.get("choices") or []
     if not choices:
-        return None, "пустой ответ судьи"
+        return None, "пустой ответ судьи", False
     choice0 = choices[0]
     finish_reason = choice0.get("finish_reason")
     message = choice0.get("message", {}) or {}
     content = str(message.get("content", "") or "")
     reasoning = str(message.get("reasoning_content", "") or "")
+    truncated = finish_reason == "length"
 
-    if finish_reason == "length" and not content.strip():
+    if truncated and not content.strip():
         # Reasoning-модель съела бюджет и до JSON не дошла — спасать нечего,
         # сообщаем причину, чтобы вызывающий повторил с большим лимитом.
         return None, (
             f"бюджет судьи съеден reasoning (max_tokens={body.get('max_tokens')}, "
             f"reasoning={len(reasoning)} символов)"
-        )
+        ), True
 
-    if finish_reason == "length":
+    if truncated:
         logger.warning(
-            "судья обрезан по max_tokens (%s) — подними llm.judge.max_tokens",
+            "судья обрезан по max_tokens (%s) — повторяем с большим бюджетом",
             body.get("max_tokens"),
         )
     try:
-        return parse_judge_json(content), ""
+        return parse_judge_json(content), "", truncated
     except ValueError as exc:
         logger.warning("судья вернул неразбираемый ответ (%s): %s", exc, content[:200])
-        return None, f"неразбираемый ответ судьи: {exc}"
+        return None, f"неразбираемый ответ судьи: {exc}", truncated
 
 
 def _judge_budgets(base: int) -> list[int]:
@@ -208,6 +216,15 @@ def judge(
     logger.info("судья: запрос к %s", cfg.judge_model)
     parsed: dict | None = None
     error = ""
+    #: Лучший спасённый результат из обрезанных ответов: (длина, parsed).
+    best_truncated: tuple[int, dict] | None = None
+
+    def _remember_truncated(candidate: dict) -> None:
+        nonlocal best_truncated
+        size = len(json.dumps(candidate, ensure_ascii=False))
+        if best_truncated is None or size > best_truncated[0]:
+            best_truncated = (size, candidate)
+
     for budget in _judge_budgets(cfg.settings.judge_max_tokens):
         if not _budget_ok():
             logger.warning("бюджет прогона исчерпан на судье, берём черновик")
@@ -216,9 +233,14 @@ def judge(
             return draft_data
         body = build_judge_prompt(choice, draft_data, cfg)
         body["max_tokens"] = budget
-        parsed, error = _request_judge(cfg, body, deadline=deadline)
-        if parsed is not None:
+        attempt, error, truncated = _request_judge(cfg, body, deadline=deadline)
+        if attempt is not None and not truncated:
+            parsed = attempt
             break
+        if attempt is not None:
+            # Обрезан, но что-то спасено: держим запасным и пробуем дальше.
+            _remember_truncated(attempt)
+            error = f"ответ судьи обрезан по max_tokens={budget}"
         logger.warning("судья не справился при max_tokens=%d (%s)", budget, error)
 
     if parsed is None and cfg.judge_fallback_model and _budget_ok():
@@ -230,9 +252,24 @@ def judge(
         )
         fallback_body = build_judge_prompt(choice, draft_data, cfg)
         fallback_body["model"] = cfg.judge_fallback_model
-        parsed, fallback_error = _request_judge(cfg, fallback_body, deadline=deadline)
-        if parsed is None:
+        attempt, fallback_error, truncated = _request_judge(
+            cfg, fallback_body, deadline=deadline
+        )
+        if attempt is not None and not truncated:
+            parsed = attempt
+        else:
+            if attempt is not None:
+                _remember_truncated(attempt)
             error = f"{error}; фолбэк {cfg.judge_fallback_model}: {fallback_error}"
+
+    if parsed is None and best_truncated is not None:
+        # Все ступени (и фолбэк) обрезаны. Отдаём самый полный спасённый
+        # вариант, но громко предупреждаем: решение судьи неполное.
+        logger.warning(
+            "судья отдан из обрезанного ответа (все ступени упёрлись в лимит): "
+            "часть правок и drop_fields могли потеряться — подними llm.judge.max_tokens"
+        )
+        parsed = best_truncated[1]
 
     if parsed is None:
         logger.warning("судья не сработал (%s), берём черновик", error)
