@@ -8,9 +8,10 @@ import time
 
 import requests
 
-from kino.deadline import Deadline
 from kino.choose import Choice
 from kino.config import Config
+from kino.constants import BUDGET_CEILING, BUDGET_MIN_USEFUL
+from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
 from kino.prompts import draft_system, draft_user, format_spec
 
@@ -285,12 +286,7 @@ def draft(choice: Choice, cfg: Config, *, deadline: Deadline | None = None) -> d
     )
 
 
-#: Потолок бюджета. Reasoning-модели (glm-5.3-flash) упирались сюда из-за
-#: скрытых «мыслей» (5.9k–10.5k символов); обычные модели доходят до потолка
-#: только на очень длинных форматах — и это честный признак, что текста много.
-_BUDGET_CEILING = 16384
-#: Ниже этого порога запрос заведомо не даст ни JSON, ни reasoning.
-_BUDGET_MIN_USEFUL = 512
+
 
 
 def _budget_ladder(base: int) -> list[int]:
@@ -302,11 +298,11 @@ def _budget_ladder(base: int) -> list[int]:
     упиралось в стену на reasoning-модели). Некорректный базовый лимит
     заменяется дефолтом.
     """
-    if base < _BUDGET_MIN_USEFUL:
+    if base < BUDGET_MIN_USEFUL:
         logger.warning("llm.draft.max_tokens=%s слишком мало, берём %d", base, 1500)
         base = 1500
     ladder: list[int] = []
-    for value in (base, base * 2, max(base * 3, _BUDGET_CEILING)):
+    for value in (base, base * 2, max(base * 3, BUDGET_CEILING)):
         if value not in ladder:
             ladder.append(value)
     return ladder[:3]

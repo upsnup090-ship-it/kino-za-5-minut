@@ -6,20 +6,15 @@ import json
 import logging
 import re
 
-
 from kino.choose import Choice
 from kino.config import Config
+from kino.constants import BUDGET_CEILING, BUDGET_MIN_USEFUL
 from kino.draft import DraftError, _post_chat
 from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
 from kino.prompts import judge_system, judge_user, format_spec
 
 logger = logging.getLogger(__name__)
-
-#: Потолок бюджета судьи: reasoning занимает 5.9k–10.5k символов на живом API.
-_BUDGET_CEILING = 16384
-#: Ниже этого порога запрос заведомо не даст ни reasoning, ни JSON.
-_BUDGET_MIN_USEFUL = 512
 
 
 def _notify_fallback(cfg: Config, reason: str) -> None:
@@ -175,11 +170,11 @@ def _judge_budgets(base: int) -> list[int]:
     непредсказуемо (замеры — до ~10.5k символов), и фиксированного лимита
     не хватает. Верхняя ступень — не меньше потолка.
     """
-    if base < _BUDGET_MIN_USEFUL:
+    if base < BUDGET_MIN_USEFUL:
         logger.warning("llm.judge.max_tokens=%s слишком мало, берём %d", base, 1500)
         base = 1500
     ladder: list[int] = []
-    for value in (base, max(base * 2, _BUDGET_CEILING)):
+    for value in (base, max(base * 2, BUDGET_CEILING)):
         if value not in ladder:
             ladder.append(value)
     return ladder[:2]

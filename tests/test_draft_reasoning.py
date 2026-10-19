@@ -78,15 +78,16 @@ def test_truncated_draft_retries_with_bigger_budget(monkeypatch):
 
 
 def test_budget_ladder_grows_and_dedupes():
-    from kino.draft import _BUDGET_CEILING, _budget_ladder
+    from kino.constants import BUDGET_CEILING
+    from kino.draft import _budget_ladder
 
     # Верхняя ступень не ниже потолка: reasoning занимает до ~10.5k символов.
-    assert _budget_ladder(4096) == [4096, 8192, _BUDGET_CEILING]
-    assert _budget_ladder(1500) == [1500, 3000, _BUDGET_CEILING]
+    assert _budget_ladder(4096) == [4096, 8192, BUDGET_CEILING]
+    assert _budget_ladder(1500) == [1500, 3000, BUDGET_CEILING]
     # Некорректный базовый лимит не должен давать max_tokens=0.
-    assert _budget_ladder(0) == [1500, 3000, _BUDGET_CEILING]
-    assert _budget_ladder(-5) == [1500, 3000, _BUDGET_CEILING]
-    assert _budget_ladder(1) == [1500, 3000, _BUDGET_CEILING]
+    assert _budget_ladder(0) == [1500, 3000, BUDGET_CEILING]
+    assert _budget_ladder(-5) == [1500, 3000, BUDGET_CEILING]
+    assert _budget_ladder(1) == [1500, 3000, BUDGET_CEILING]
     # По возрастанию, без дублей, не больше трёх попыток.
     ladder = _budget_ladder(4096)
     assert ladder == sorted(set(ladder))
@@ -95,9 +96,9 @@ def test_budget_ladder_grows_and_dedupes():
 
 def test_budget_ceiling_covers_measured_reasoning():
     """Замер на живом API: reasoning до ~10.5k символов (~3.2k токенов)."""
-    from kino.draft import _BUDGET_CEILING
+    from kino.constants import BUDGET_CEILING
 
-    assert _BUDGET_CEILING >= 8192
+    assert BUDGET_CEILING >= 8192
 
 
 def test_truncated_but_started_json_retries_for_full_draft(monkeypatch):
