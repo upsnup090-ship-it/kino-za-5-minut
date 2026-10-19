@@ -129,6 +129,34 @@ def test_caption_renders_announcement_date_and_platform():
     assert "18 декабря 2026" in cap and "Netflix" in cap and "Финал трилогии" in cap
 
 
+def test_caption_skips_placeholder_announcement_values():
+    """Заглушки вместо значений не попадают в подпись (боевой кейс сессии 1).
+
+    Модель ставила announcement.date/platform = «Не объявлена», и в подписи
+    выходил мусорный блок «📅 Не объявлена · 📺 Не объявлена».
+    """
+    cap = build_caption({
+        "headline": "Дюна 3", "text": "Анонс",
+        "announcement": {"date": "Не объявлена", "platform": "Не объявлена",
+                         "what_to_expect": "Финал трилогии"},
+    }, "", CFG)
+    assert "Не объявлена" not in cap
+    assert "📅" not in cap and "📺" not in cap
+    assert "Финал трилогии" in cap
+
+
+@pytest.mark.parametrize("placeholder", ["не объявлена.", "НЕИЗВЕСТНО", "н/д",
+                                         "Нет данных", "TBA", "Не раскрыта"])
+def test_caption_drops_placeholder_variants(placeholder):
+    """Разные формы заглушек: регистр, хвостовая точка, н/д, tba."""
+    cap = build_caption({
+        "headline": "H", "text": "T",
+        "announcement": {"date": placeholder, "platform": "Netflix"},
+    }, "", CFG)
+    assert placeholder not in cap
+    assert "Netflix" in cap
+
+
 def test_caption_renders_review_verdict_and_pros_cons():
     cap = build_caption({
         "headline": "Обзор", "text": "Текст",
