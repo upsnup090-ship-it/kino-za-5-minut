@@ -107,6 +107,43 @@ def format_spec(fmt: str) -> str:
     return text
 
 
+def expected_fields(fmt: str) -> list[str]:
+    """Top-level ключи формата — из секции «ПОЛЯ:» его спецификации.
+
+    Единственный источник правды — тот же файл, что уходит модели в промпте,
+    поэтому реестр не может разъехаться со спецификацией (как разъехалась
+    рукописная сводка полей, вырезанная из draft_system.txt).
+
+    Читаем строки вида «- key: тип» до первой непустой строки без «-».
+    Пустой список — файла нет, секции нет или ключей в ней нет (логируем).
+    """
+    path = FORMATS_DIR / f"{fmt}.txt"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.error("не удалось прочитать спецификацию формата %s: %s", path, exc)
+        return []
+
+    keys: list[str] = []
+    in_fields = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "ПОЛЯ:":
+            in_fields = True
+            continue
+        if not in_fields or not stripped:
+            continue
+        if not stripped.startswith("-"):
+            break
+        key = stripped[1:].split(":", 1)[0].strip()
+        if key and key not in keys:
+            keys.append(key)
+
+    if not keys:
+        logger.error("в спецификации %s нет ключей в секции ПОЛЯ:", path)
+    return keys
+
+
 def draft_system() -> str:
     return load_prompt("draft_system", DEFAULT_DRAFT_SYSTEM)
 
