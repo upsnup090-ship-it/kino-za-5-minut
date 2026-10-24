@@ -91,7 +91,10 @@ class Config:
     proxy_url: str | None = None
     llm_proxy_url: str | None = None
     state_path: Path = ROOT / "data" / "state.json"
-    stats_path: Path = ROOT / "logs" / "format_stats.csv"
+    # None = CSV-статистика не пишется (п.38 журнала: прямые Config() в тестах и
+    # скриптах не должны дописывать строки в боевой logs/format_stats.csv).
+    # Бой всегда получает явный путь из load_config (env STATS_PATH).
+    stats_path: Path | None = None
     cache_dir: Path = ROOT / "data" / "feed_cache"
     source_mode: str = "rss"
     horizon_dir: Path = ROOT / "horizon"

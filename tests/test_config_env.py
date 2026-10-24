@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from kino.config import ConfigError, load_config
+from kino.config import Config, ConfigError, Settings, load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -126,3 +126,26 @@ def test_explicit_llm_proxy_wins(clean_env, tmp_path):
     )
     cfg = load_config(env_file)
     assert cfg.llm_proxy_url == "http://llm:pass@host:2"
+
+
+def test_stats_path_env_override(clean_env, tmp_path):
+    """STATS_PATH из env попадает в конфиг абсолютным путём (п.38)."""
+    env_file = _write_env(tmp_path, _base_env("STATS_PATH=logs/other_stats.csv\n"))
+    cfg = load_config(env_file)
+    assert cfg.stats_path == ROOT / "logs" / "other_stats.csv"
+
+
+def test_stats_path_absolute_env_wins(clean_env, tmp_path):
+    target = tmp_path / "format_stats.csv"
+    env_file = _write_env(tmp_path, _base_env(f"STATS_PATH={target}\n"))
+    cfg = load_config(env_file)
+    assert cfg.stats_path == target
+
+
+def test_default_config_has_no_stats_path():
+    """Прямой Config() (тесты, скрипты) не пишет CSV — п.38 журнала.
+
+    Прогон тестов не должен дописывать строки source=test в боевой
+    logs/format_stats.csv; бой получает путь явно из load_config.
+    """
+    assert Config(settings=Settings()).stats_path is None
