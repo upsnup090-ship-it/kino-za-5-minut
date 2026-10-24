@@ -9,7 +9,7 @@ PIP ?= venv/bin/pip
 setup:
 	python3 -m venv venv
 	$(PIP) install -r requirements.txt
-	@echo "Не забудь: cp .env.example .env и заполни значения"
+	@echo "Не забудь: cp docs/env.example .env и заполни значения"
 
 ## Тесты
 test:

@@ -70,7 +70,8 @@ spec-файлы, `_FORMAT_TO_KIND` и salvage-списки не разъехал
 ОБЯЗАТЕЛЬНО, ЗАПРЕЩЕНО, ПОЛЯ, ПРИМЕР); тест-реестр проверяет их наличие.
 
 Раньше все 16 форматов лежали в одном `draft_system.txt` (12.6 КБ) и грузились
-целиком на каждый вызов. Теперь в запрос идут system (~7.7 КБ) + один spec
+целиком на каждый вызов. Теперь в запрос идут system (~5.5 КБ, гард-тест
+≤ 6000 Б) + один spec
 (~1 КБ), а инструкций по формату стало больше, не меньше.
 
 ## Вердикт судьи
@@ -194,18 +195,21 @@ telegra.ph (`createAccount` / `createPage`, узлы Node в JSON). Страни
 - **`horizon`** — `horizon.py` запускает `uv run horizon --hours N`, читает
   свежий `.md` из `data/summaries/` и разбирает его в тот же список `FeedItem`.
 
-Состав `sources.yaml`: Deadline, Variety, THR, SlashFilm, IndieWire, Guardian,
-RollingStone, AVClub, Reddit, а также азиатские и российские издания —
-THR/Asia, SCMP/Culture, JapanTimes/Culture, CNA/Entertainment,
-Yonhap/Entertainment, InterMedia, Film.ru. YouTube-фиды убраны: они отдавали
-SSLError/ReadTimeout, а RuTube закрыл RSS (404 на всех путях).
+Состав `sources.yaml` (28 фидов): Deadline, Variety, THR, SlashFilm,
+IndieWire, Guardian, RollingStone, AVClub, Reddit (урезан до movies/boxoffice —
+фан-сабы дублировали прессу и съедали 429-окно), а также азиатские и
+российские издания — THR/Asia, SCMP/Culture, JapanTimes/Culture,
+CNA/Entertainment, Yonhap/Entertainment, InterMedia, Film.ru. Плюс 11
+YouTube-фидов официальных трейлерных каналов (`kind: video` — кормушка
+форматов trailer/video): с боевого сервера RSS живые, в песочнице был
+SSLError. RuTube закрыл RSS (404 на всех путях).
 
 ### Кэш фидов и лимиты источников
 
-Reddit держит окно лимита около минуты, поэтому пять его фидов в один прогон
-не влезают: при 429 источник берётся из последнего удачного снимка в
-`data/feed_cache/` (путь меняется через `FEED_CACHE_DIR`). Без кэша 4 источника
-из 5 терялись на каждом запуске. Битый кэш не выдаётся за фид.
+Reddit держит окно лимита около минуты, поэтому его фиды идут последовательно
+с паузой (`reddit_pause_seconds`), а при 429 источник берётся из последнего
+удачного снимка в `data/feed_cache/` (путь меняется через `FEED_CACHE_DIR`) —
+без кэша Reddit-фиды терялись на каждом запуске. Битый кэш не выдаётся за фид.
 
 `max_workers: 6` — общий пул для остальных источников; для Reddit применяется
 последовательный проход с паузой, чтобы не упираться в лимит. Число попыток и
