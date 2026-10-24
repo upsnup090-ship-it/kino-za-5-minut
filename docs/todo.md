@@ -180,6 +180,12 @@ quote 2/2), утечек нет, черновики не обрезались. �
   (3) демо по 16 форматам: сессия 1 (facts/news/when/quote) прошла 19.10 —
   4/4 accept, находки 33–36; остались сессии 2–4 (poll/trailer/video/infographic,
   collage/behind_scenes/interview/announcement, review/comparison/riddle/opinion).
+- Перезапуск замера маршрутизации на сервере со свежими фидами (24.10):
+  `venv/bin/python scripts/routing_report.py` — в песочнице кэш 18.10 и без
+  11 YT-фидов. Флаг шлюза уже сработал по кэшу (news 55.3% > 40%, см. лог
+  Фазы 3 в source-routing-design.md §9.1) — серверный замер покажет, меняет
+  ли YT-фиды картину, после чего решение владельца: калибровка весов/маппинга
+  или допуск к Фазе 4.
 - Вёрстка PNG инфографики глазами (HTTP 200 и PNG-магик есть; в Telegram смотрит
   владелец).
 - Развёртывание на VPS по deploy/README.md (не проверялось в песочнице).
@@ -214,8 +220,12 @@ quote 2/2), утечек нет, черновики не обрезались. �
 38. Тесты пишут в реальный logs/format_stats.csv: прогон test_pipeline +
     test_serve + test_variations добавил 4 строки source=test (проверено
     24.10: 1692 → 1696 строк), статистика форматов замусорена прогонами
-    pytest. → ОТКРЫТО: в conftest/tests подменять STATS_PATH на tmp_path;
-    чистку существующего CSV решает владелец.
+    pytest. → ЗАКРЫТО (f764c07): Config.stats_path дефолт None (прямые
+    Config() CSV не пишут; бой получает путь явно из load_config/env
+    STATS_PATH), autouse-фикстура _isolated_stats в conftest ставит
+    STATS_PATH во tmp_path; регресс: прогон test_pipeline/test_serve/
+    test_variations — CSV 1714 → 1714. Чистку существующих строк source=test
+    в CSV оставили владельцу (первые такие строки в нём ещё от 17.10).
 39. Док-дрейф: architecture.md — «YouTube-фиды убраны» противоречит
     sources.yaml (11 YT-фидов восстановлены, пункт 25), «system ~7.7 КБ»
     (фактический draft_system.txt 5549 Б после пунктов 27/34), «пять его

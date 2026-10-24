@@ -129,7 +129,7 @@ def test_flag_zero_admit_formats():
 
 
 def test_no_flags_when_coverage_healthy():
-    """Разнообразный набор с ужиmенным news — флагов нет."""
+    """Разнообразный набор с ужатым news — флагов нет."""
     weights = dict(FULL_WEIGHTS)
     weights["news"] = 5  # ужимаем news, чтобы его доля выбора не била порог 40%
     items = [
