@@ -35,7 +35,10 @@ DEFAULT_DRAFT_USER = (
 )
 DEFAULT_JUDGE_SYSTEM = (
     "Ты — строгий фактчекер и редактор Telegram-канала о кино. "
-    "Работай только с материалом ниже. Верни строго JSON без markdown."
+    "Работай только с материалом ниже. Верни строго JSON без markdown. "
+    "Верни quality (целое 1-10, насколько пост хорош для читателя), "
+    "sad (true/false, тяжёлая ли тема: смерть, болезнь, трагедия) и "
+    "reasoning (1-2 предложения, почему такая quality) — всегда, при любом verdict."
 )
 DEFAULT_JUDGE_USER = (
     "Источник: {source}\n"
@@ -45,7 +48,8 @@ DEFAULT_JUDGE_USER = (
     "Спецификация формата:\n{format_spec}\n\n"
     "Черновик: {draft}\n\n"
     "Верни JSON: verdict, reason, headline, text, key_moment, question, hashtags, "
-    "film, director, cast, release, studio, wiki, drop_fields."
+    "film, director, cast, release, studio, wiki, drop_fields, "
+    "quality, sad, reasoning."
 )
 
 

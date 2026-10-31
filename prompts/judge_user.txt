@@ -14,7 +14,13 @@
 
 Верни JSON с полями решения и правок:
 verdict, reason, headline, text, key_moment, question, hashtags,
-film, director, cast, release, studio, wiki, drop_fields.
+film, director, cast, release, studio, wiki, drop_fields,
+quality, sad, reasoning.
+
+quality — целое 1-10 (насколько пост хорош для читателя),
+sad — true/false (тяжёлая ли тема: смерть, болезнь, трагедия),
+reasoning — 1-2 предложения, почему такая quality.
+Эти три поля нужны всегда, при любом verdict.
 
 Формат-специфичные поля верни как в черновике, если они верны
 (poll_options, video_url, infographic, image_candidates,

@@ -29,6 +29,7 @@ def _notify_fallback(cfg: Config, reason: str) -> None:
 
 _SALVAGE_KEYS = (
     "verdict", "headline", "text", "key_moment", "question", "hashtags", "reason",
+    "quality", "sad", "reasoning",
     "video_url", "poll_options", "infographic", "image_candidates",
     "announcement", "review", "comparison", "riddle",
     "fact_source", "news", "quote", "trailer", "video", "collage",
@@ -311,6 +312,18 @@ def judge(
             _drop_fields(draft_data, drop_paths)
 
         draft_data["verdict"] = parsed.get("verdict", "accept")
+        # Оценка качества: судья возвращает её всегда (схема judge_system.txt).
+        # Переносим в черновик, чтобы judge_with_analysis -> analyze_judge_feedback
+        # увидел реальные значения, а не пустоту. quality вне 1..10 — не оценка,
+        # а мусор от модели: игнорируем, поле не создаём.
+        quality = parsed.get("quality")
+        if isinstance(quality, int) and 1 <= quality <= 10:
+            draft_data["quality"] = quality
+        if isinstance(parsed.get("sad"), bool):
+            draft_data["sad"] = parsed["sad"]
+        reasoning = parsed.get("reasoning")
+        if isinstance(reasoning, str) and reasoning.strip():
+            draft_data["reasoning"] = reasoning.strip()
         if draft_data["verdict"] == "reject":
             reason = str(parsed.get("reason", "") or "").strip()
             # Причину кладём в черновик: pipeline пишет её админу в уведомлении
