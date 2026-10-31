@@ -175,7 +175,82 @@ def _is_placeholder(text: str) -> bool:
     return normalized in _PLACEHOLDERS
 
 
-def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
+# --- сверка года с датой материала -----------------------------------------
+#
+# Последний рубеж. Правило 20 промпта судьи просит снимать fact_source с
+# неверным годом, но модель выполняет правила не всегда, а пост в канале
+# отредактировать нельзя. Здесь год проверяется кодом.
+#
+# Материал от 31.10.2026, в подписи «Материал Variety, 2024» — дефект,
+# который это ловит.
+
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+# Год в fact_source режем при любом расхождении: поле по определению про
+# источник, и год там должен быть годом материала.
+_YEAR_TOLERANCE_SOURCE = 0
+
+# В text год может быть годом релиза («премьера в 2027»), а не года
+# материала. Допуск шире: расхождение больше двух лет — уже выдумка.
+_YEAR_TOLERANCE_TEXT = 2
+
+# Дата в формате «31 октября 2026» — так её отдаёт draft._human_date.
+_PUB_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _pub_year(pub_date: str) -> int | None:
+    """Год из даты материала. None — даты нет или она заглушка."""
+    if not pub_date or _is_placeholder(pub_date):
+        return None
+    match = _PUB_YEAR_RE.search(pub_date)
+    return int(match.group()) if match else None
+
+
+def _strip_wrong_year(text: str, pub_date: str, field: str,
+                      tolerance: int) -> str:
+    """Убирает из текста год, не сходящийся с датой материала.
+
+    Даты материала нет — не трогаем: без базы для сравнения вырезать год
+    наугад хуже, чем оставить. Каждый вырезанный год пишется в лог, чтобы
+    по нему считалась частота ошибок модели.
+
+    Убирается и прилегающая запятая с предлогом («Variety, 2024» ->
+    «Variety», «в 2024 году» -> пусто), затем схлопываются двойные пробелы.
+    """
+    if not text:
+        return text
+    year = _pub_year(pub_date)
+    if year is None:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        found = int(match.group())
+        if abs(found - year) <= tolerance:
+            return match.group()
+        logger.warning(
+            "caption: год %d в поле %s не сходится с датой материала %s — вырезан",
+            found, field, pub_date,
+        )
+        return ""
+
+    cleaned = _YEAR_RE.sub(_replace, text)
+    if cleaned == text:
+        return text
+    # Хвосты после вырезания. Порядок важен: сначала предлог с «годом»
+    # («в 2024 году» -> «»), потом одиночное «году/год», потом знаки.
+    cleaned = re.sub(r"\b(в|за|с|по|до|от|ещё|еще)\s+(году|год|года|г\.)\b", "", cleaned)
+    cleaned = re.sub(r"\b(году|год|года|г\.)\b", "", cleaned)
+    # Висячие знаки: «интервью, , Variety» -> «интервью, Variety».
+    cleaned = re.sub(r"[,;]\s*(?=[,;])", "", cleaned)
+    cleaned = re.sub(r"([,;])\s*$", "", cleaned)
+    cleaned = re.sub(r"\s*[,;]\s*(?=[.!?]|$)", "", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
+    return cleaned.strip(" ,;:")
+
+
+def _format_block(draft_data: dict, plain: bool = False,
+                  pub_date: str = "") -> list[str]:
     """Блоки подписи из формат-специфичных полей.
 
     Без этого поля announcement/review/comparison/riddle, которые LLM старательно
@@ -184,6 +259,8 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
 
     plain=True — для статьи graph.org: там html не нужен (сервис сам снимает
     теги), а escape_html показал бы читателю `&amp;`.
+
+    pub_date — дата материала, по ней сверяется год в fact_source.
     """
     esc = (lambda s: s) if plain else escape_html
     blocks: list[str] = []
@@ -408,7 +485,14 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
     # 13. facts
     fact_source = _field(draft_data.get("fact_source"))
     if fact_source:
-        blocks.append(f"📚 {esc(fact_source)}")
+        # Год источника сверяется с датой материала: «Variety, 2024» на
+        # новости от 31.10.2026 — выдумка модели (боевой дефект).
+        if pub_date:
+            fact_source = _strip_wrong_year(
+                fact_source, pub_date, "fact_source", _YEAR_TOLERANCE_SOURCE
+            )
+        if fact_source:
+            blocks.append(f"📚 {esc(fact_source)}")
 
     return blocks
 
@@ -450,12 +534,17 @@ LONG_FORMATS = {"interview", "review", "opinion", "collage", "comparison", "behi
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
-                  include_facts: bool = False, fmt: str = "") -> str:
+                  include_facts: bool = False, fmt: str = "",
+                  pub_date: str = "") -> str:
     """Собирает подпись в чистом журналистском стиле.
 
     Стиль один: заголовок, текст, форматные поля, ключевой момент, вопрос,
     хэштеги. kind нужен, чтобы не дублировать вопрос в опросе; include_facts —
     чтобы цифры инфографики остались в тексте, если график не собрался.
+
+    pub_date — дата материала. По ней сверяется год в fact_source и text:
+    модель выдумывает год, а пост в канале не отредактировать. Пустая
+    pub_date отключает сверку (сравнивать не с чем).
     """
     headline = md_bold_to_html(escape_html(str(draft_data.get("headline", "") or "").strip()))
     text = md_bold_to_html(escape_html(str(draft_data.get("text", "") or "").strip()))
@@ -463,13 +552,26 @@ def build_caption(draft_data: dict, image_url: str, cfg: Any, kind: str = "",
     question = escape_html(str(draft_data.get("question", "") or "").strip())
     hashtags = normalize_hashtags(draft_data.get("hashtags"))
 
+    # Сверка года идёт по тексту до экранирования: HTML-сущности ломают
+    # \b-границы, а после escape_html год уже не отделить от &amp;.
+    if pub_date:
+        text = escape_html(
+            _strip_wrong_year(str(draft_data.get("text", "") or "").strip(),
+                              pub_date, "text", _YEAR_TOLERANCE_TEXT)
+        )
+        text = md_bold_to_html(text)
+        key_moment = md_bold_to_html(escape_html(
+            _strip_wrong_year(str(draft_data.get("key_moment", "") or "").strip(),
+                              pub_date, "key_moment", _YEAR_TOLERANCE_TEXT)
+        ))
+
     blocks: list[str] = []
 
     if headline:
         blocks.append(headline)
     if text:
         blocks.append(text)
-    blocks.extend(_format_block(draft_data))
+    blocks.extend(_format_block(draft_data, pub_date=pub_date))
     # Цифры инфографики остаются в тексте, если график не собрался
     # (include_facts) или картинки нет вовсе — иначе пост теряет смысл формата.
     if draft_data.get("infographic") and (include_facts or not image_url):

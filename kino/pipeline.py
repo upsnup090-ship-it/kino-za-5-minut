@@ -14,7 +14,7 @@ from kino.choose import Choice, choose
 from kino.collect import CollectResult, collect
 from kino.config import Config
 from kino.deadline import Deadline, check
-from kino.draft import DraftError, draft
+from kino.draft import DraftError, _human_date, draft
 from kino.horizon import HorizonResult, collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
 from kino.judge import judge_with_analysis
@@ -313,15 +313,18 @@ def record_format_stat(cfg: Config, choice: Choice) -> None:
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Config, kind: str = "",
-                  include_facts: bool = False, fmt: str = "") -> str:
+                  include_facts: bool = False, fmt: str = "",
+                  pub_date: str = "") -> str:
     """Собирает подпись из черновика (единственный стиль, см. kino.caption).
 
     kind и include_facts влияют на состав блоков: опрос не дублирует вопрос,
     инфографика без картинки отдаёт цифры текстом. fmt — формат контента:
     длинные форматы (LONG_FORMATS) не режутся редакторским капом.
+    pub_date — дата материала, по ней caption.py сверяет год в fact_source.
     """
     return build_caption_text(draft_data, image_url, cfg, kind=kind,
-                              include_facts=include_facts, fmt=fmt)
+                              include_facts=include_facts, fmt=fmt,
+                              pub_date=pub_date)
 
 
 def apply_infographic(choice: Choice, final_data: dict,
@@ -575,6 +578,9 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             kind=kind,
             include_facts=include_facts,
             fmt=choice.format,
+            # Дата материала: по ней caption.py сверяет год в fact_source.
+            # Тот же источник, что у промптов черновика и судьи.
+            pub_date=_human_date(choice.item, cfg.settings.timezone),
         )
 
         if not dry_run:
