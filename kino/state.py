@@ -9,6 +9,10 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # только для проверки типов: рантайм-импорт циклический
+    from kino.schedule import DayState
 
 logger = logging.getLogger(__name__)
 
@@ -197,12 +201,12 @@ def record_choice(
     state.used_sigs = state.used_sigs[-max_sigs:]
 
 
-def state_day(state: State) -> DayState:
+def state_day(state: State) -> "DayState":
     """Достаёт DayState из State для планировщика.
 
     Мост между модулями: schedule оперирует своим DayState, а хранится он
     в State. Избегаем циклического импорта — DayState импортируем здесь,
-    лениво.
+    лениво, поэтому в аннотации он строкой (TYPE_CHECKING-импорт ниже).
     """
     from kino.schedule import DayState
 
@@ -213,7 +217,7 @@ def state_day(state: State) -> DayState:
     )
 
 
-def set_state_day(state: State, day: DayState) -> None:
+def set_state_day(state: State, day: "DayState") -> None:
     """Записывает DayState из планировщика обратно в State."""
     state.day = day.date
     state.posts_today = day.posts

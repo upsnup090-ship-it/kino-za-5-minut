@@ -254,3 +254,35 @@ quote 2/2), утечек нет, черновики не обрезались. �
     модели сразу ставит fallback (повтор той же модели). → ЗАКРЫТО (26.10):
     задан =glm-5.3-flash (значение из комментария docs/env.example, дешёвая
     draft-модель).
+
+## Раунд 8: статическая типизация и валидация (31.10)
+
+44. Статической проверки типов в проекте не было вовсе: `mypy` не в
+    requirements, в Makefile нет цели, CI-прогона нет. Проверено 31.10:
+    `mypy kino scripts` дал 11 ошибок в 8 файлах. → ЗАКРЫТО (этот коммит):
+    mypy 2.4.1 + конфиг `mypy.ini` (strict для kino/, lenient для tests/
+    и scripts/), цель `make typecheck`, `requirements-dev.txt`. Итог:
+    `Success: no issues found in 26 source files`.
+
+45. РЕАЛЬНЫЙ БАГ: `publish(kind="poll")` передавал `poll_options` в
+    `send_poll_with_caption` как есть, а параметр объявлен
+    `list[str] | None`. При `None` `send_poll` делал `for x in options` →
+    `TypeError: 'NoneType' is not iterable` — процесс падал вместо фолбэка
+    на фото/текст. Сейчас не стреляло только потому, что `pipeline` всегда
+    передаёт непустой список при `kind="poll"`. → ЗАКРЫТО: `poll_options or []`
+    в publish + 2 регресс-теста в tests/test_publish.py (517 passed).
+
+46. Ложные срабатывания mypy, разобранные по одному (код был корректен,
+    правились аннотации): `_extract_ts` (`*raw[:6]` + `tzinfo=` — mypy
+    подозревал tzinfo внутри кортежа; feedparser отдаёт struct_time из 9
+    полей), `_retry_after` (`float(params.get(...))` под try/except),
+    `state_day`/`set_state_day` (DayState импортируется лениво →
+    TYPE_CHECKING-импорт + строковая аннотация), `DEFAULT_ROUTING`
+    (значение по ключу "fallback" — строка, остальные — словари),
+    `collected` в pipeline (CollectResult | HorizonResult), `wait` в serve
+    (int → float), `_EMPTY` в demo_posts.
+
+47. Переиспользование имён переменных в `caption.format_fields`: `date` и
+    `quote` означали разное в блоке announcement и в блоке quote (str vs
+    dict). Не баг, но читаемость и типизация страдали. → ЗАКРЫТО:
+    `ann_date`, `quote_date`, `creator_quote`.

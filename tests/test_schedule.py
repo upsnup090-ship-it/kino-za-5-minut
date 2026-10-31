@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -27,7 +28,7 @@ from kino.schedule import (
 
 def _schedule(**kwargs) -> ScheduleConfig:
     """Расписание по умолчанию: окно 11:00-18:00 и точка 22:50."""
-    params = {
+    params: dict[str, Any] = {
         "windows": parse_windows(["11:00-18:00", "22:50"]),
         "max_posts_per_day": 3,
         "min_gap_minutes": 45,

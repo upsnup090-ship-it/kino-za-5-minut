@@ -14,11 +14,13 @@ import logging
 import signal
 import time
 from datetime import datetime
+from pathlib import Path
 
 from kino.config import Config
 from kino.logging_util import purge_old_logs
 from kino.pipeline import run
 from kino.schedule import (
+    DayState,
     ScheduleConfig,
     apply_post,
     describe_day,
@@ -37,7 +39,7 @@ class Stopper:
     def __init__(self) -> None:
         self._stop = False
 
-    def request(self, *args) -> None:  # noqa: ANN002 — сигнатура signal handler
+    def request(self, *args: object) -> None:  # сигнатура signal handler
         self._stop = True
         logger.info("получен сигнал остановки, завершаю после текущего шага")
 
@@ -60,7 +62,9 @@ def build_schedule(cfg: Config) -> ScheduleConfig:
     )
 
 
-def _persist_day_counter(cfg: Config, schedule: ScheduleConfig, day, now: datetime) -> None:
+def _persist_day_counter(
+    cfg: Config, schedule: ScheduleConfig, day: DayState, now: datetime
+) -> None:
     """Сохраняет счётчик дня в state.
 
     run() уже сохранил used_links; перезагружаем его и дописываем поля дня,
@@ -96,9 +100,7 @@ def _maybe_purge(cfg: Config, last_purge: float | None, now: float) -> float | N
     return now
 
 
-def _log_path(cfg: Config):
-    from pathlib import Path
-
+def _log_path(cfg: Config) -> Path:
     return Path(cfg.settings.log_file)
 
 
@@ -157,7 +159,8 @@ def serve(cfg: Config, *, dry_run: bool = False, once: bool = False, tick_second
             break
 
         # Спим до следующей проверки, но не дольше чем до следующего слота.
-        wait = tick
+        # wait — float: остаток до слота дробный, а time.sleep принимает float.
+        wait: float = float(tick)
         if slot is not None:
             remaining = (slot - now).total_seconds()
             if remaining > 0:

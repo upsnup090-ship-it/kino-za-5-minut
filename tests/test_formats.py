@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -30,8 +31,8 @@ from kino.pipeline import (
 CFG = SimpleNamespace(settings=SimpleNamespace(caption_max_length=950, caption_hard_limit=1000))
 
 
-def _item(**kw) -> FeedItem:
-    base = dict(source="s", title="t", link="https://news.example/a",
+def _item(**kw: Any) -> FeedItem:
+    base: dict[str, Any] = dict(source="s", title="t", link="https://news.example/a",
                 pub_date="", ts=0.0, snippet="", images=[], video_url="")
     base.update(kw)
     return FeedItem(**base)
@@ -405,6 +406,7 @@ def _parse(xml: str):
     cfg = Config(settings=Settings())
     name, items, err = _parse_feed(Source(name="t", url="https://x/feed"), xml.encode(), cfg)
     assert err is None, err
+    assert items, "фид разобран без элементов"
     return items[0]
 
 

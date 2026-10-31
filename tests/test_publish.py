@@ -252,3 +252,39 @@ def test_send_with_retry_429_without_json_body():
 
     # fallback backoff 2.0 + 2**0 = 3.0
     mock_sleep.assert_called_once_with(3.0)
+
+
+# --- poll: None вместо списка вариантов ---
+
+
+def test_publish_poll_without_options_does_not_crash():
+    """kind=poll и poll_options=None не должны ронять публикацию.
+
+    poll_options в publish() объявлен как `list[str] | None`, а send_poll
+    перебирает варианты. До фикса None уходил в цикл и давал TypeError —
+    вместо мягкого фолбэка на фото/текст процесс падал целиком.
+    """
+    cfg = _make_config()
+    with patch("kino.publish.send_poll_with_caption", return_value=False) as mock_poll, \
+         patch("kino.publish.send_photo", return_value=True):
+        assert publish(
+            cfg,
+            "подпись",
+            "https://example.com/pic.jpg",
+            dry_run=False,
+            kind="poll",
+            poll_question="Вопрос?",
+            poll_options=None,
+        ) is True
+
+    # В send_poll_with_caption пришёл список, а не None.
+    assert mock_poll.call_args.args[4] == []
+
+
+def test_send_poll_with_caption_none_options_returns_false():
+    """Пустой набор вариантов — не падение, а отказ (фолбэк выше по стеку)."""
+    from kino.publish import send_poll_with_caption
+
+    cfg = _make_config()
+    with patch("kino.publish.send_text", return_value=True):
+        assert send_poll_with_caption(cfg, "-100123", "текст", "Вопрос?", []) is False

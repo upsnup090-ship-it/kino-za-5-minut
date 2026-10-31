@@ -1,0 +1,6 @@
+# Зависимости разработки (не нужны на сервере для работы бота).
+-r requirements.txt
+
+# Статическая проверка типов: make typecheck.
+# Нашла реальный баг publish(kind="poll", poll_options=None) — docs/todo.md #45.
+mypy==2.4.1

@@ -25,7 +25,7 @@ from __future__ import annotations
 import random
 import re
 from functools import lru_cache
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 #: Классы материала (таксономия утверждена 19.10, docs/source-routing-design.md §3).
 KINDS: tuple[str, ...] = (
@@ -49,7 +49,9 @@ FEED_KIND_BASE: dict[str, tuple[str, ...]] = {
 #: Маппинг формата → правила допуска (§4, утверждён владельцем 19.10).
 #: Конфиг `formats.yaml: routing` может его переопределить; этот словарь —
 #: каноны-фолбэк, чтобы пайплайн не упал при отсутствии секции.
-DEFAULT_ROUTING: dict[str, dict[str, Any]] = {
+#: Значение по ключу "fallback" — строка, остальные — правила-словари,
+#: поэтому тип значения объединённый (Any), а не dict[str, Any].
+DEFAULT_ROUTING: dict[str, Any] = {
     "fallback": "news",
     "news": {"kinds": [], "require": []},
     "when": {"kinds": ["release_date", "festival"], "require": ["date"]},
@@ -289,7 +291,7 @@ def pick_format(
     weights: dict[str, int],
     allowed: list[str],
     *,
-    random_func=random.random,
+    random_func: Callable[[], float] = random.random,
 ) -> str:
     """Взвешенный выбор внутри допущенных форматов (веса ренормализуются).
 

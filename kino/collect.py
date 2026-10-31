@@ -200,7 +200,14 @@ def _extract_ts(entry: dict) -> float:
     )
     if raw:
         try:
-            return datetime(*raw[:6], tzinfo=timezone.utc).timestamp()
+            # feedparser отдаёт time.struct_time (9 полей, без tzinfo), поэтому
+            # первые шесть — год..секунда, а пояс подставляем сами. Разбираем
+            # по позициям, а не через *raw: иначе проверка типов считает, что
+            # tzinfo может прийти из самого кортежа.
+            year, month, day, hour, minute, second = tuple(raw[:6])
+            return datetime(
+                year, month, day, hour, minute, second, tzinfo=timezone.utc
+            ).timestamp()
         except (TypeError, ValueError):
             pass
     return 0.0

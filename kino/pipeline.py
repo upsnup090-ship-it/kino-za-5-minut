@@ -11,11 +11,11 @@ from typing import Any
 
 from kino.caption import build_caption as build_caption_text
 from kino.choose import Choice, choose
-from kino.collect import collect
+from kino.collect import CollectResult, collect
 from kino.config import Config
 from kino.deadline import Deadline, check
 from kino.draft import DraftError, draft
-from kino.horizon import collect_horizon
+from kino.horizon import HorizonResult, collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
 from kino.judge import judge
 from kino.publish import publish
@@ -346,6 +346,10 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         collect_deadline = (
             deadline if explicit_deadline else Deadline(cfg.settings.deadline_seconds)
         )
+        # Оба источника дают «совместимый по смыслу» результат: у CollectResult
+        # и HorizonResult общий контракт items/broken/total/fresh_count, но
+        # формально это разные датаклассы — аннотируем объединением типов.
+        collected: CollectResult | HorizonResult
         if cfg.source_mode == "horizon":
             collected = collect_horizon(
                 cfg.horizon_dir,
@@ -417,7 +421,8 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         requested_kind = kind
         published = False
         extra_images: list[str] = []
-        poll_q, poll_opts = "", []
+        poll_q: str = ""
+        poll_opts: list[str] = []
         # --- инфографика: график QuickChart вместо фото ---
         image, include_facts = apply_infographic(choice, final_data, image)
         # --- галерея collage/comparison: кандидаты → wiki → иллюстрации фида ---

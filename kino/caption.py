@@ -192,10 +192,10 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
     ann = draft_data.get("announcement")
     if isinstance(ann, dict):
         parts = []
-        date = _field(ann.get("date"))
+        ann_date = _field(ann.get("date"))
         platform = _field(ann.get("platform"))
-        if date:
-            parts.append(f"📅 {date}")
+        if ann_date:
+            parts.append(f"📅 {ann_date}")
         if platform:
             parts.append(f"📺 {platform}")
         if parts:
@@ -206,9 +206,12 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
         expect = _field(ann.get("what_to_expect"))
         if expect:
             blocks.append(esc(expect))
-        quote = _field(ann.get("creator_quote"))
-        if quote:
-            blocks.append(f"💬 {esc(quote)}")
+        # creator_quote, а не quote: ниже в этой же функции `quote` — словарь
+        # из черновика (блок 3). Разные типы под одним именем путали и людей,
+        # и проверку типов.
+        creator_quote = _field(ann.get("creator_quote"))
+        if creator_quote:
+            blocks.append(f"💬 {esc(creator_quote)}")
         backstory = _field(ann.get("backstory"))
         if backstory:
             blocks.append(f"↩️ {esc(backstory)}")
@@ -231,8 +234,8 @@ def _format_block(draft_data: dict, plain: bool = False) -> list[str]:
     if isinstance(quote, dict):
         speaker = _field(quote.get("speaker"))
         occasion = _field(quote.get("occasion"))
-        date = _field(quote.get("date"))
-        parts = [p for p in (speaker, occasion, date) if p]
+        quote_date = _field(quote.get("date"))
+        parts = [p for p in (speaker, occasion, quote_date) if p]
         if parts:
             blocks.append(f"🎙 {esc(' — '.join(parts))}")
 

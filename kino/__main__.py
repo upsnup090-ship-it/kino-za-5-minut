@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     dry_run = not args.publish
     try:
         cfg = load_config()
@@ -139,7 +139,7 @@ def _cmd_run(args) -> int:
         return 1
 
 
-def _cmd_draft(args) -> int:
+def _cmd_draft(args: argparse.Namespace) -> int:
     try:
         cfg = load_config()
         setup_logging(cfg)
@@ -174,7 +174,7 @@ def _cmd_draft(args) -> int:
     return 0
 
 
-def _cmd_serve(args) -> int:
+def _cmd_serve(args: argparse.Namespace) -> int:
     """serve: цикл 24/7. Ошибка конфига = выход без цикла."""
     try:
         cfg = load_config()

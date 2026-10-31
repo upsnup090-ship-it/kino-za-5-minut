@@ -3,7 +3,7 @@
 PYTHON ?= venv/bin/python
 PIP ?= venv/bin/pip
 
-.PHONY: setup test run run-live serve serve-once draft deploy install clean
+.PHONY: setup test typecheck run run-live serve serve-once draft deploy install clean
 
 ## Установка окружения
 setup:
@@ -11,9 +11,19 @@ setup:
 	$(PIP) install -r requirements.txt
 	@echo "Не забудь: cp docs/env.example .env и заполни значения"
 
+## Установка окружения разработки (с mypy)
+setup-dev:
+	python3 -m venv venv
+	$(PIP) install -r requirements-dev.txt
+	@echo "Не забудь: cp docs/env.example .env и заполни значения"
+
 ## Тесты
 test:
 	$(PYTHON) -m pytest -q
+
+## Статическая проверка типов (конфиг — mypy.ini)
+typecheck:
+	$(PYTHON) -m mypy kino scripts tests
 
 ## Dry-run одного поста (не публикует, LLM вызывается)
 run:

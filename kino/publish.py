@@ -68,7 +68,7 @@ def _retry_after(response: requests.Response, fallback: float) -> float:
     if not isinstance(params, dict):
         return fallback
     try:
-        return float(params.get("retry_after"))
+        return float(params.get("retry_after"))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return fallback
 
@@ -298,7 +298,12 @@ def publish(
         urls = [image_url] + list(extra_images or [])
         sent = send_media_group(cfg, chat, urls, caption)
     elif kind == "poll":
-        sent = send_poll_with_caption(cfg, chat, caption, poll_question, poll_options)
+        # poll_options объявлен как `list[str] | None` (дефолт None), а
+        # send_poll перебирает options — None давал TypeError вместо фолбэка
+        # на фото/текст. Пустой список безопасен: send_poll вернёт False.
+        sent = send_poll_with_caption(
+            cfg, chat, caption, poll_question, poll_options or []
+        )
     elif kind == "link" and not link_url:
         logger.warning("вариация link без link_url — фолбэк на фото")
 
