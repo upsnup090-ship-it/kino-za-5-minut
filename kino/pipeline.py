@@ -7,6 +7,7 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from kino.caption import build_caption as build_caption_text
@@ -15,14 +16,25 @@ from kino.collect import CollectResult, collect
 from kino.config import Config
 from kino.deadline import Deadline, check
 from kino.draft import DraftError, _human_date, draft
+from kino.franchise import config_path, detect, load_franchises
 from kino.horizon import HorizonResult, collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
 from kino.judge import judge_with_analysis
 from kino.publish import publish
-from kino.state import State, StateLock, load_state, record_choice, save_state
+from kino.state import (
+    State,
+    StateLock,
+    load_state,
+    record_choice,
+    record_franchises,
+    save_state,
+)
 from kino.stats_collector import collect_format_stats, collect_judge_performance_stats
 
 logger = logging.getLogger(__name__)
+
+#: Корень проекта — для относительных путей конфигов (словарь франшиз).
+ROOT = Path(__file__).resolve().parents[1]
 
 # Вариации поста: photo — фото с подписью, link — пост-ссылка с превью,
 # article — статья на graph.org, уходит постом-ссылкой на неё, text — текст
@@ -418,7 +430,13 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             # LLM-фазе (черновик → судья → публикация) — свежий полный бюджет,
             # каким бы долгим ни был сбор.
             deadline = Deadline(cfg.settings.deadline_seconds)
-        choice: Choice = choose(collected.items, cfg, used_links, used_sigs)
+        choice: Choice = choose(
+            collected.items,
+            cfg,
+            used_links,
+            used_sigs,
+            franchise_history=[tuple(x) for x in state.franchise_history],  # type: ignore[misc]
+        )
         logger.info("тема выбрана: %s | формат: %s",
                     choice.item.title[:80], choice.format)
 
@@ -617,6 +635,15 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 state.recent_post_hashes = state.recent_post_hashes[
                     -cfg.settings.state_max_signatures:
                 ]
+                # Франшизный кулдаун: запоминаем, про что вышел пост. Только
+                # при реальной публикации — dry-run и reject не тратят
+                # кулдаун, иначе тема «сгорала» бы без поста.
+                _record_post_franchises(cfg, state, choice)
+                # Резерв: пост ушёл, но готовый черновик сохраняем как
+                # страховку от пустого слота. Только в режиме слотов —
+                # в режиме windows резерв не используется.
+                if cfg.settings.schedule_mode == "slots":
+                    _store_reserve(cfg, choice, final_data, caption, image.url, kind)
                 save_state(
                     cfg.state_path,
                     state,
@@ -691,6 +718,61 @@ def _publish_article(cfg: Config, draft_data: dict, image_url: str, choice: Choi
     except Exception as exc:  # noqa: BLE001 — статья не должна ронять пост
         logger.warning("ошибка статьи: %s — фолбэк на фото", exc.__class__.__name__)
         return ""
+
+
+def _store_reserve(
+    cfg: Config,
+    choice: Choice,
+    draft_data: dict[str, Any],
+    caption: str,
+    image_url: str,
+    kind: str,
+) -> None:
+    """Кладёт готовый пост в резерв — страховку от пустого слота.
+
+    Второй черновик не генерируется: в резерв идёт только то, что уже
+    собрано и проверено судьёй. Сбой записи не роняет прогон — пост уже
+    вышел.
+    """
+    try:
+        from kino.reserve import store
+
+        store(
+            cfg,
+            link=choice.item.link,
+            title=choice.item.title,
+            source=choice.item.source,
+            format=choice.format,
+            draft_data=draft_data,
+            caption=caption,
+            image_url=image_url if kind != "text" else "",
+            kind=kind,
+        )
+    except Exception as exc:  # noqa: BLE001 — пост уже вышел, резерв вторичен
+        logger.warning("резерв: не сохранён (%s)", exc)
+
+
+def _record_post_franchises(cfg: Config, state: State, choice: Choice) -> None:
+    """Пишет франшизы опубликованного поста в историю state.
+
+    Ошибка словаря не должна ронять уже вышедший пост: публикация состоялась,
+    кулдаун — вспомогательное правило.
+    """
+    try:
+        franchises = load_franchises(config_path(cfg.settings.franchises_path, ROOT))
+        if not franchises:
+            return
+        found = detect(f"{choice.item.title} {choice.item.snippet}", franchises)
+        if not found:
+            return
+        record_franchises(
+            state,
+            [f.key for f in found],
+            datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        logger.info("франшизы поста: %s", ", ".join(str(f) for f in found))
+    except Exception as exc:  # noqa: BLE001 — пост уже вышел, правило вторично
+        logger.warning("франшизы: не записаны (%s)", exc)
 
 
 def _signature_of(choice: Choice) -> list[str]:

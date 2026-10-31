@@ -79,6 +79,10 @@ class Settings:
     reserve_ttl_hours: int = 48
     #: Хранение журнала прогонов в днях.
     schedule_retention_days: int = 90
+    #: Франшизный кулдаун: не более одного поста про одну франшизу за N часов.
+    #: 0 или пустой словарь — правило выключено.
+    franchise_cooldown_hours: int = 36
+    franchises_path: str = "config/franchises.yaml"
     # --- логи ---
     log_level: str = "INFO"
     log_file: str = "logs/kino.log"
@@ -322,6 +326,8 @@ def load_config(env_file: str | None = None) -> Config:
         reserve_max_items=int(schedule.get("reserve_max_items", 5)),
         reserve_ttl_hours=int(schedule.get("reserve_ttl_hours", 48)),
         schedule_retention_days=int(schedule.get("retention_days", 90)),
+        franchise_cooldown_hours=int(schedule.get("franchise_cooldown_hours", 36)),
+        franchises_path=str(schedule.get("franchises", "config/franchises.yaml")),
         log_level=str(logging_cfg.get("level", "INFO")),
         log_file=str(logging_cfg.get("file", "logs/kino.log")),
         log_max_bytes=int(logging_cfg.get("max_bytes", 5 * 1024 * 1024)),
@@ -373,6 +379,10 @@ def load_config(env_file: str | None = None) -> Config:
     if settings.schedule_retention_days <= 0:
         raise ConfigError(
             f"schedule.retention_days={settings.schedule_retention_days}, нужно > 0"
+        )
+    if settings.franchise_cooldown_hours < 0:
+        raise ConfigError(
+            f"schedule.franchise_cooldown_hours={settings.franchise_cooldown_hours}, нужно >= 0"
         )
 
     state_path = Path(os.getenv("STATE_PATH", "data/state.json"))

@@ -1,0 +1,83 @@
+# Франшизы: не более одного поста про одну франшизу за cooldown_hours (36).
+#
+# Зачем: дедупликация по ссылке и сигнатуре ловит ту же новость, но не ловит
+# РАЗНЫЕ новости об одном и том же. При 13 слотах в неделю и стыке
+# пт 23:40 → сб 16:40 два материала про одну франшизу подряд заметны.
+#
+# Формат записи:
+#   key      — латинский идентификатор, попадает в state и в лог
+#   title    — человеческое имя для лога и админки
+#   phrases  — маркеры в заголовке/сниппете, регистр не важен, границы слова
+#              соблюдаются. Русские маркеры — по основе без окончания
+#              («дюн» ловит «Дюна», «Дюны», «Дюной», но не «дюжину»).
+#
+# Пустой список или отсутствие файла = правило выключено. Ложные срабатывания
+# дороже пропущенного поста, поэтому список короткий и явный.
+franchises:
+  - key: dune
+    title: Дюна
+    phrases: ["дюн*", "dune", "villeneuve", "вильнёв*", "вильнев*", "arrakis", "арракис"]
+
+  - key: marvel
+    title: Marvel / MCU
+    phrases: ["marvel", "марвел", "mcu", "avengers", "мстител*", "spider-man", "человек-паук*", "x-men", "люди икс*", "deadpool", "дедпул"]
+
+  - key: dc
+    title: DC
+    phrases: ["dc studios", "dc comics", "batman", "бэтмен*", "superman", "супермен*", "wonder woman", "чудо-женщина*", "joker", "джокер*", "gunn"]
+
+  - key: star-wars
+    title: Звёздные войны
+    phrases: ["star wars", "звёздные войны*", "jedi", "джедай*", "mandalorian", "мандалорец*", "sith", "ситх*"]
+
+  - key: harry-potter
+    title: Гарри Поттер / Wizarding World
+    phrases: ["harry potter", "гарри поттер*", "hogwarts", "хогвартс*", "wizarding", "волшебн*"]
+
+  - key: lotr
+    title: Властелин колец / Средиземье
+    phrases: ["lord of the rings", "властелин колец*", "hobbit", "хоббит*", "tolkien", "толкин*", "средиземь*"]
+
+  - key: avatar
+    title: Аватар
+    phrases: ["avatar", "аватар*", "pandora", "пандора*", "cameron", "кэмерон*"]
+
+  - key: fast-furious
+    title: Форсаж
+    phrases: ["fast and furious", "fast & furious", "форсаж*", "furious"]
+
+  - key: john-wick
+    title: Джон Уик
+    phrases: ["john wick", "джон уик*"]
+
+  - key: stranger-things
+    title: Очень странные дела
+    phrases: ["stranger things", "очень странные дела*", "hawkins", "хокинс*"]
+
+  - key: witcher
+    title: Ведьмак
+    phrases: ["witcher", "ведьмак*", "gerald", "геральт*", "ciri", "цири*"]
+
+  - key: alien
+    title: Чужой
+    phrases: ["alien", "чужой*", "чужого*", "xenomorph", "ксеноморф*", "ripley", "рипли*"]
+
+  - key: jurassic
+    title: Парк юрского периода
+    phrases: ["jurassic", "юрского периода*", "динозавр*"]
+
+  - key: mission-impossible
+    title: Миссия невыполнима
+    phrases: ["mission impossible", "миссия невыполнима*"]
+
+  - key: godfather
+    title: Крёстный отец
+    phrases: ["godfather", "крёстный отец*", "крестный отец*"]
+
+  - key: blade-runner
+    title: Бегущий по лезвию
+    phrases: ["blade runner", "бегущий по лезвию*"]
+
+  - key: matrix
+    title: Матрица
+    phrases: ["matrix", "матрица*", "матрицу*", "матрице*", "neo", "нео"]

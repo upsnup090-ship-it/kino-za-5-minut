@@ -396,7 +396,8 @@ def test_serve_slots_marks_missed_slot_skipped(tmp_path):
     assert "опоздание" in runs[0].reason
 
 
-def test_serve_slots_reject_is_recorded(tmp_path):
+def test_serve_slots_reject_falls_back_to_skipped_without_reserve(tmp_path):
+    """Reject без резерва: слот закрывается `skipped`, а не молчанием."""
     from kino.serve import serve
 
     cfg = _serve_cfg(tmp_path)
@@ -409,10 +410,12 @@ def test_serve_slots_reject_is_recorded(tmp_path):
         assert serve(cfg, once=True) == 0
 
     rec = db.recent_runs()[0]
-    assert rec.outcome == "rejected"
+    assert rec.outcome == "skipped"
+    assert "судья отбил" in rec.reason
+    assert "резерв пуст" in rec.reason
 
 
-def test_serve_slots_abort_is_recorded_as_failed(tmp_path):
+def test_serve_slots_abort_falls_back_to_skipped_without_reserve(tmp_path):
     from kino.serve import serve
 
     cfg = _serve_cfg(tmp_path)
@@ -426,8 +429,115 @@ def test_serve_slots_abort_is_recorded_as_failed(tmp_path):
         assert serve(cfg, once=True) == 0
 
     rec = db.recent_runs()[0]
-    assert rec.outcome == "failed"
-    assert rec.reason == "дедлайн"
+    assert rec.outcome == "skipped"
+    assert "дедлайн" in rec.reason
+
+
+def test_serve_slots_reject_uses_reserve(tmp_path):
+    """Reject + резерв: слот закрывается старым постом резерва."""
+    from kino.serve import serve
+
+    cfg = _serve_cfg(tmp_path)
+    db = ScheduleDb(cfg.db_path)
+    db.add_slot(5, "16:40")
+    db.add_reserve(
+        link="https://old/1", title="Запасной", format="news",
+        caption="Старая подпись", kind="photo",
+    )
+
+    with patch("kino.serve.run", return_value=_result(published=False, verdict="reject")), \
+         patch("kino.serve._publish_reserve_item") as mock_pub, \
+         patch("kino.serve.time.sleep"), \
+         _freeze("kino.serve", _at(16, 42)):
+        assert serve(cfg, once=True) == 0
+
+    mock_pub.assert_called_once()
+    rec = db.recent_runs()[0]
+    assert rec.outcome == "reserve"
+    assert rec.link == "https://old/1"
+    assert rec.format == "news"
+    # Взятый пост больше не доступен.
+    assert db.take_reserve() is None
+
+
+def test_serve_slots_abort_uses_reserve(tmp_path):
+    from kino.serve import serve
+
+    cfg = _serve_cfg(tmp_path)
+    db = ScheduleDb(cfg.db_path)
+    db.add_slot(5, "16:40")
+    db.add_reserve(link="https://old/2", caption="подпись")
+
+    with patch("kino.serve.run", return_value=_result(
+        published=False, aborted=True, abort_reason="дедлайн"
+    )), patch("kino.serve._publish_reserve_item"), \
+         patch("kino.serve.time.sleep"), \
+         _freeze("kino.serve", _at(16, 42)):
+        assert serve(cfg, once=True) == 0
+
+    rec = db.recent_runs()[0]
+    assert rec.outcome == "reserve"
+    assert rec.link == "https://old/2"
+
+
+def test_serve_slots_reserve_dry_run_does_not_publish(tmp_path):
+    """В dry-run резерв берётся, но в канал ничего не уходит."""
+    from kino.serve import serve
+
+    cfg = _serve_cfg(tmp_path)
+    db = ScheduleDb(cfg.db_path)
+    db.add_slot(5, "16:40")
+    db.add_reserve(link="https://old/3", caption="подпись")
+
+    with patch("kino.serve.run", return_value=_result(published=False, verdict="reject")), \
+         patch("kino.serve._publish_reserve_item") as mock_pub, \
+         patch("kino.serve.time.sleep"), \
+         _freeze("kino.serve", _at(16, 42)):
+        assert serve(cfg, dry_run=True, once=True) == 0
+
+    mock_pub.assert_not_called()
+    assert db.recent_runs()[0].outcome == "reserve"
+
+
+def test_serve_slots_reserve_skips_expired(tmp_path):
+    """Просроченный резерв не берётся: слот пропускается."""
+    import sqlite3
+    from datetime import datetime as _dt, timedelta as _td
+
+    from kino.serve import serve
+
+    cfg = _serve_cfg(tmp_path)
+    db = ScheduleDb(cfg.db_path)
+    db.add_slot(5, "16:40")
+    db.add_reserve(link="https://old/4", caption="подпись", ttl_hours=1)
+    past = (_dt.now().astimezone() - _td(hours=2)).isoformat(timespec="seconds")
+    with sqlite3.connect(db.path) as conn:
+        conn.execute("UPDATE reserve SET expires_at = ?", (past,))
+
+    with patch("kino.serve.run", return_value=_result(published=False, verdict="reject")), \
+         patch("kino.serve._publish_reserve_item") as mock_pub, \
+         patch("kino.serve.time.sleep"), \
+         _freeze("kino.serve", _at(16, 42)):
+        assert serve(cfg, once=True) == 0
+
+    mock_pub.assert_not_called()
+    assert db.recent_runs()[0].outcome == "skipped"
+
+
+def test_serve_slots_reserve_empty_notifies_admin(tmp_path):
+    from kino.serve import serve
+
+    cfg = _serve_cfg(tmp_path)
+    db = ScheduleDb(cfg.db_path)
+    db.add_slot(5, "16:40")
+
+    with patch("kino.serve.run", return_value=_result(published=False, verdict="reject")), \
+         patch("kino.serve._notify_reserve_empty") as mock_notify, \
+         patch("kino.serve.time.sleep"), \
+         _freeze("kino.serve", _at(16, 42)):
+        assert serve(cfg, once=True) == 0
+
+    mock_notify.assert_called_once()
 
 
 def test_serve_slots_dry_run_records_skipped(tmp_path):

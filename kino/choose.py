@@ -6,11 +6,24 @@ import logging
 import random
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 from kino.collect import FeedItem
 from kino.config import Config
+from kino.franchise import (
+    FranchiseError,
+    config_path,
+    describe_blocked,
+    detect,
+    load_franchises,
+    recent_keys,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Корень проекта — для относительных путей словаря франшиз.
+ROOT = Path(__file__).resolve().parents[1]
 
 _STOP_WORDS = {
     "film", "films", "movie", "movies", "series", "show", "shows", "trailer",
@@ -129,6 +142,57 @@ def _shared(a: list[str], b: list[str]) -> int:
 _SAD_SAFE = {"news", "facts", "quote"}
 
 
+def _apply_franchise_cooldown(
+    items: list[FeedItem],
+    cfg: Config,
+    franchise_history: list[tuple[str, str]] | None,
+    now: datetime | None,
+) -> list[FeedItem]:
+    """Убирает записи, чья франшиза попала в кулдаун.
+
+    Возвращает исходный список, если правило выключено (нет словаря, нулевой
+    кулдаун) или если после фильтра не осталось ни одной записи: пустой
+    результат здесь означал бы «прогон без темы», а честнее отдать исходный
+    набор — сетка не должна рваться из-за кулдауна. Отсев виден в логе.
+    """
+    if not franchise_history:
+        return items
+    cooldown = cfg.settings.franchise_cooldown_hours
+    if cooldown <= 0:
+        return items
+
+    try:
+        franchises = load_franchises(config_path(cfg.settings.franchises_path, ROOT))
+    except FranchiseError as exc:
+        # Битая словарная запись не должна ронять публикацию: правило
+        # выключается, причина — в лог.
+        logger.warning("франшизы: словарь не прочитан (%s), кулдаун выключен", exc)
+        return items
+    if not franchises:
+        return items
+
+    moment = now or datetime.now().astimezone()
+    active = recent_keys(franchise_history, moment, cooldown)
+    if not active:
+        return items
+
+    kept: list[FeedItem] = []
+    blocked = 0
+    for item in items:
+        found = detect(f"{item.title} {item.snippet}", franchises)
+        if any(f.key in active for f in found):
+            blocked += 1
+            logger.debug("франшиза в кулдауне (%s): %s",
+                         describe_blocked(found, active), item.title[:70])
+            continue
+        kept.append(item)
+
+    if blocked:
+        logger.info("франшизный кулдаун: отсеяно %d записей (активны: %s)",
+                    blocked, ", ".join(sorted(active)))
+    return kept if kept else items
+
+
 def _pick_format(weights: dict[str, int], sad_topic: bool) -> str:
     total = sum(weights.values())
     if total <= 0:
@@ -150,6 +214,9 @@ def choose(
     cfg: Config,
     used_links: set[str],
     used_sigs: list[list[str]],
+    *,
+    franchise_history: list[tuple[str, str]] | None = None,
+    now: datetime | None = None,
 ) -> Choice:
     if not items:
         raise RuntimeError("выбор: нет записей")
@@ -199,6 +266,15 @@ def choose(
         and not any(_shared(_signature(item.title), sig) >= 2 for sig in used_sigs)
     ]
     candidates = fresh if fresh else base_pool
+
+    # Франшизный кулдаун. Дополнение к дедупликации выше, а не замена: та
+    # ловит ту же новость, эта — разные новости про одну франшизу. Проверка
+    # здесь, до генерации черновика: отсекать после судьи значит платить
+    # токенами за пост, который не выйдет. Пустой словарь или выключенный
+    # кулдаун — фильтр не применяется вовсе (ложных срабатываний не бывает
+    # по построению).
+    candidates = _apply_franchise_cooldown(candidates, cfg, franchise_history, now)
+
     window = candidates[: min(cfg.settings.window_size, len(candidates))]
     item = random.choice(window)
 

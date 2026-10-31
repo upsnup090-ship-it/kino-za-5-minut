@@ -15,6 +15,7 @@ import signal
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from kino.config import Config
 from kino.logging_util import purge_old_logs
@@ -127,6 +128,87 @@ def _log_path(cfg: Config) -> Path:
     return Path(cfg.settings.log_file)
 
 
+def _use_reserve(
+    cfg: Config,
+    db: ScheduleDb,
+    run_id: int,
+    *,
+    reason: str,
+    dry_run: bool,
+) -> bool:
+    """Берёт пост из резерва вместо свежего прогона.
+
+    Порядок из спецификации (раздел 5): свежего нет или прогон отбит →
+    самый старый непросроченный пост резерва; резерв пуст или всё просрочено
+    → `skipped` с причиной и уведомлением админу.
+
+    Возвращает True, если пост взят (тогда запись `runs` уже закрыта).
+    """
+    try:
+        item = db.take_reserve()
+    except ScheduleDbError as exc:
+        logger.error("резерв недоступен: %s", exc)
+        item = None
+
+    if item is None:
+        logger.warning("резерв пуст: слот пропущен (%s)", reason)
+        db.finish_run(run_id, outcome="skipped", reason=f"{reason}; резерв пуст")
+        _notify_reserve_empty(cfg, reason, dry_run=dry_run)
+        return False
+
+    logger.info("слот закрыт резервом: %s (%s)", item.link, item.title[:60])
+    if not dry_run:
+        # Публикуем уже готовую подпись — черновик не генерируется заново
+        # (решение владельца: резерв не тратит токены).
+        try:
+            _publish_reserve_item(cfg, item)
+        except Exception as exc:  # noqa: BLE001 — сбой отправки не должен ронять цикл
+            logger.error("резерв: публикация не удалась (%s)", exc)
+            db.finish_run(run_id, outcome="failed", reason=f"резерв: {exc}")
+            return False
+    db.finish_run(
+        run_id,
+        outcome="reserve",
+        reason=reason,
+        link=item.link,
+        format=item.format or None,
+        kind=item.kind or None,
+    )
+    return True
+
+
+def _publish_reserve_item(cfg: Config, item: Any) -> None:
+    """Отправляет пост из резерва в канал.
+
+    Резерв хранит готовую подпись и картинку, поэтому повторно проходят
+    только публикация и защита от дубля по хэшу. Импорт publish здесь, а не
+    наверху: `kino.serve` не должен тянуть сетевой модуль, пока резерв не
+    понадобился.
+    """
+    from kino.publish import publish
+
+    publish(
+        cfg,
+        item.caption,
+        item.image_url,
+        dry_run=False,
+        kind=item.kind or "photo",
+        link_url=item.link if item.kind == "link" else "",
+    )
+
+
+def _notify_reserve_empty(cfg: Config, reason: str, *, dry_run: bool) -> None:
+    """Админу — одно сообщение о пропущенном слоте. В dry-run не шлём."""
+    if dry_run:
+        return
+    try:
+        from kino.publish import notify_admin
+
+        notify_admin(cfg, f"слот пропущен: {reason}; резерв пуст")
+    except Exception as exc:  # noqa: BLE001 — уведомление не важнее цикла
+        logger.warning("уведомление админу не отправлено: %s", exc)
+
+
 def _serve_slots(
     cfg: Config,
     *,
@@ -209,8 +291,16 @@ def _serve_slots(
                 finished = datetime.now(slot_cfg.zone)
 
                 if result.aborted:
-                    db.finish_run(run_id, outcome="failed", reason=result.abort_reason or "прервано")
                     logger.warning("прогон прерван: %s", result.abort_reason)
+                    # Резерв решает исход сам: возьмёт пост — `reserve`,
+                    # не возьмёт — `skipped` с причиной. Закрывать запись
+                    # `failed` заранее нельзя: вторая запись перезаписала бы
+                    # исход, который уже означает «слот закрыт резервом».
+                    _use_reserve(
+                        cfg, db, run_id,
+                        reason=f"прогон прерван: {result.abort_reason}",
+                        dry_run=dry_run,
+                    )
                 elif result.published:
                     late = lateness_minutes(occurrence, finished, slot_cfg)
                     reason = ""
@@ -227,8 +317,8 @@ def _serve_slots(
                     )
                     logger.info("опубликовано по слоту %s", occurrence)
                 elif result.verdict == "reject":
-                    db.finish_run(run_id, outcome="rejected", reason="судья отбил")
                     logger.info("слот %s: публикация отменена судьёй", occurrence)
+                    _use_reserve(cfg, db, run_id, reason="судья отбил", dry_run=dry_run)
                 else:
                     # dry-run: цикл прошёл, но публикации нет.
                     db.finish_run(run_id, outcome="skipped", reason="dry-run")

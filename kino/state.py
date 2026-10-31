@@ -32,6 +32,10 @@ class State:
     day: str = ""
     posts_today: int = 0
     last_post_at: str = ""  # ISO локального времени
+    #: История франшиз: пары (ключ франшизы, ISO-время публикации). Нужна
+    #: кулдауну «не более одного поста про франшизу за N часов». Хранится
+    #: здесь, а не в kino.db: это про контент, как used_links и used_sigs.
+    franchise_history: list[list[str]] = field(default_factory=list)
 
 
 class StateLock:
@@ -164,6 +168,14 @@ def load_state(path: Path) -> State:
         posts_today = 0
     if not isinstance(last_post_at, str):
         last_post_at = ""
+    # История франшиз: старый state.json без неё грузится как пустая —
+    # кулдаун начнёт работать с первого нового поста.
+    history_raw = data.get("franchise_history", [])
+    franchise_history: list[list[str]] = []
+    if isinstance(history_raw, list):
+        for entry in history_raw:
+            if isinstance(entry, list) and len(entry) == 2:
+                franchise_history.append([str(entry[0]), str(entry[1])])
     return State(
         used_links=[str(x) for x in links],
         used_sigs=[[str(y) for y in x] for x in sigs if isinstance(x, list)],
@@ -171,6 +183,7 @@ def load_state(path: Path) -> State:
         day=day,
         posts_today=posts_today,
         last_post_at=last_post_at,
+        franchise_history=franchise_history,
     )
 
 
@@ -183,6 +196,7 @@ def save_state(path: Path, state: State, max_links: int, max_sigs: int) -> None:
         "day": state.day,
         "posts_today": state.posts_today,
         "last_post_at": state.last_post_at,
+        "franchise_history": state.franchise_history[-20:],
     }
     fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".state-", suffix=".tmp")
     try:
@@ -234,3 +248,14 @@ def set_state_day(state: State, day: "DayState") -> None:
     state.day = day.date
     state.posts_today = day.posts
     state.last_post_at = day.last_post_at
+
+def record_franchises(state: State, keys: list[str], when: str, *, keep: int = 20) -> None:
+    """Запоминает, что пост про эти франшизы вышел в `when` (ISO).
+
+    Хранится коротко (последние `keep` записей): кулдаун — 36 часов, за это
+    время при 13 слотах в неделю выходит максимум 3-4 поста.
+    """
+    for key in keys:
+        if key:
+            state.franchise_history.append([key, when])
+    state.franchise_history = state.franchise_history[-keep:]
