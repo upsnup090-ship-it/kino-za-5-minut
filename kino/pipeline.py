@@ -518,7 +518,12 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 logger.warning("вариация %s без картинки — уходим текстом", kind)
                 kind = "text"
         if kind != requested_kind:
-            logger.info("вариация поста: %s (выбрана %s, фолбэк)", kind, requested_kind)
+            if requested_kind == "article" and kind == "link":
+                # article штатно превращается в link: пост ведёт на страницу
+                # graph.org. Это не фолбэк, не пугаем лог словом «фолбэк».
+                logger.info("вариация поста: link (статья graph.org)")
+            else:
+                logger.info("вариация поста: %s (выбрана %s, фолбэк)", kind, requested_kind)
         else:
             logger.info("вариация поста: %s", kind)
 

@@ -79,7 +79,7 @@ def test_none_deadline_uses_config(tmp_path):
         mc.return_value = SimpleNamespace(items=[item], broken=[])
         mch.return_value = SimpleNamespace(item=item, format="news", quality_score=5, sad_topic=False)
         md.return_value = {"headline": "H", "text": "T"}
-        mj.return_value = {"headline": "H", "text": "T", "verdict": "accept"}
+        mj.return_value = {"headline": "H", "text": "T", "verdict": "accept", "analysis": {"judge_feedback": {}}}
         mi.return_value = SimpleNamespace(url="http://img.test/x.jpg", title="x", lang="en")
         result = run(cfg, dry_run=True, deadline=None)
     assert result.aborted is False
@@ -103,10 +103,24 @@ def test_default_deadline_positive_in_settings():
     assert Settings().deadline_seconds > 0
 
 
-def test_deadline_config_loaded_from_yaml():
-    """Секция run.deadline_seconds читается из settings.yaml."""
+def test_deadline_config_loaded_from_yaml(monkeypatch, tmp_path):
+    """Секция run.deadline_seconds читается из settings.yaml.
+
+    Раньше тест звал load_config(env_file=".env.test") и падал там, где
+    .env.test нет (файл в .gitignore, лежал только на старой машине).
+    Теперь ключи подставляются через env, а env_file указывает на пустышку.
+    """
     from kino.config import load_config
-    cfg = load_config(env_file=".env.test")
+
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm.test")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("DRAFT_MODEL", "d")
+    monkeypatch.setenv("JUDGE_MODEL", "j")
+    monkeypatch.setenv("BOT_TOKEN", "b")
+    monkeypatch.setenv("CHANNEL_CHAT_ID", "-100")
+    empty_env = tmp_path / ".env.test"
+    empty_env.write_text("", encoding="utf-8")
+    cfg = load_config(env_file=str(empty_env))
     assert cfg.settings.deadline_seconds >= 1
 
 
@@ -124,7 +138,7 @@ def test_image_skipped_when_budget_exhausted_before_image(tmp_path, monkeypatch)
         mc.return_value = SimpleNamespace(items=[item], broken=[])
         mch.return_value = SimpleNamespace(item=item, format="news", quality_score=0, sad_topic=False)
         md.return_value = {"headline": "H", "text": "T"}
-        mj.return_value = {"headline": "H", "text": "T", "verdict": "accept"}
+        mj.return_value = {"headline": "H", "text": "T", "verdict": "accept", "analysis": {"judge_feedback": {}}}
         mi.return_value = SimpleNamespace(url="", title="", lang="none")
         result = run(cfg, dry_run=True, deadline=_expired_deadline(monkeypatch))
     assert result.aborted is True
@@ -157,7 +171,7 @@ def test_slow_collect_leaves_full_budget_to_llm(tmp_path):
 
     def fake_draft(choice, cfg_arg, *, deadline=None):
         captured["deadline"] = deadline
-        return {"headline": "Шапка", "text": "Текст", "question": "Вопрос?"}
+        return {"headline": "Шапка", "text": "Текст", "question": "Вопрос?", "analysis": {"judge_feedback": {}}}
 
     with patch("kino.pipeline.collect", side_effect=slow_collect), \
          patch("kino.pipeline.choose") as mock_choose, \
@@ -171,7 +185,7 @@ def test_slow_collect_leaves_full_budget_to_llm(tmp_path):
         mock_choose.return_value = SimpleNamespace(
             item=item, format="news", quality_score=5, sad_topic=False
         )
-        mock_judge.return_value = {"headline": "Шапка", "text": "Текст", "question": "Вопрос?"}
+        mock_judge.return_value = {"headline": "Шапка", "text": "Текст", "question": "Вопрос?", "analysis": {"judge_feedback": {}}}
 
         result = run(cfg, dry_run=True)
 

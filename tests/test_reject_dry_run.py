@@ -50,7 +50,7 @@ def _run_rejected(cfg: Config, *, dry_run: bool):
         mock_collect.return_value = SimpleNamespace(items=[item], broken=[], total=1, fresh_count=1)
         mock_choose.return_value = Choice(item=item, format="news", quality_score=5, sad_topic=False)
         mock_draft.return_value = {"headline": "H", "text": "T"}
-        mock_judge.return_value = {"headline": "H", "text": "T", "verdict": "reject", "reason": "нет"}
+        mock_judge.return_value = {"headline": "H", "text": "T", "verdict": "reject", "reason": "нет", "analysis": {"judge_feedback": {}}}
         result = run(cfg, dry_run=dry_run)
     return result, mock_save
 

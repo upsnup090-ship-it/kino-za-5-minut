@@ -148,9 +148,16 @@ def serve(cfg: Config, *, dry_run: bool = False, once: bool = False, tick_second
                 break
         else:
             slot = next_slot(now, schedule, day)
-            logger.info("пора: %s, следующий слот: %s",
-                        describe_day(day, schedule),
-                        slot.strftime("%Y-%m-%d %H:%M") if slot else "завтра")
+            slot_str = slot.strftime("%Y-%m-%d %H:%M") if slot else "завтра"
+            # Тик вне окна публикации — это не «пора», это «ждём». В info
+            # писать его каждые 60с бессмысленно: за сутки сотни строк шума.
+            # Раз в час — heartbeat, остальное в debug.
+            if now.minute == 0:
+                logger.info("ждём: %s, следующий слот: %s",
+                            describe_day(day, schedule), slot_str)
+            else:
+                logger.debug("ждём: %s, следующий слот: %s",
+                             describe_day(day, schedule), slot_str)
 
         # Автоочистка логов раз в интервал.
         last_purge = _maybe_purge(cfg, last_purge, time.time())
