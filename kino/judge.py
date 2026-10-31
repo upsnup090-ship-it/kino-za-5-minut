@@ -325,23 +325,32 @@ def judge(
         return draft_data
 
 
-def judge_with_analysis(cfg: Config, draft_data: dict, prompt: str = None) -> dict:
-    """Судья с анализом качества."""
-    # Сначала анализируем черновик
-    from kino.analyzer import analyze_draft_quality, evaluate_content_quality
-    
-    draft_metrics = analyze_draft_quality(draft_data)
-    
-    # Затем вызываем оригинальную функцию judge
-    # Используем правильный способ вызова judge
-    from kino.judge import judge as original_judge
-    original_result = original_judge(cfg, draft_data, prompt)
-    
-    # Добавляем анализ к результату
+def judge_with_analysis(
+    choice: Choice,
+    draft_data: dict,
+    cfg: Config,
+    *,
+    deadline: Deadline | None = None,
+) -> dict:
+    """Судья с анализом качества.
+
+    Обёртка над judge(): прогоняет обычную проверку и добавляет к результату
+    блок "analysis" с метриками черновика и оценкой качества.
+
+    Сигнатура совпадает с judge() намеренно — раньше здесь стояло
+    judge_with_analysis(cfg, draft_data, prompt), и вызов
+    original_judge(cfg, draft_data, prompt) подставлял cfg на место choice,
+    а prompt на место cfg: живой прогон падал с
+    AttributeError: 'NoneType' object has no attribute 'judge_model'.
+    Тесты этого не ловили — они дёргают judge() напрямую.
+    """
+    from kino.analyzer import evaluate_content_quality
+
+    original_result = judge(choice, draft_data, cfg, deadline=deadline)
+
     evaluation = evaluate_content_quality(draft_data, original_result)
-    
-    # Объединяем результаты
-    result = original_result.copy()
+
+    result = dict(original_result)
     result["analysis"] = evaluation
-    
+
     return result
