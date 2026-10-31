@@ -408,13 +408,13 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         judge_time = (end_time - start_time).total_seconds()
         
         # Собираем статистику качества (отдельный файл, не format_stats.csv).
-        if "analysis" in final_data:
+        # cfg.stats_path is None — штатное состояние тестов и скриптов:
+        # CSV не пишется вовсе (п.38), иначе тесты мусорят в боевой logs/.
+        stats_dir = cfg.stats_path.parent if cfg.stats_path else None
+        if stats_dir is not None and "analysis" in final_data:
             analysis = final_data["analysis"]
             draft_metrics = analysis.get("draft_metrics", {})
             judge_feedback = analysis.get("judge_feedback", {})
-
-            # Путь к папке логов — из конфига (STATS_PATH), а не хардкод.
-            stats_dir = cfg.stats_path.parent if cfg.stats_path else Path("logs")
 
             collect_format_stats(
                 choice.format,

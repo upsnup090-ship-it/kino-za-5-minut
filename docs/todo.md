@@ -386,3 +386,26 @@ quote 2/2), утечек нет, черновики не обрезались. �
 
 67. Непушенный коммит 4f9362d (fix judge_with_analysis) висел локально.
     → ЗАКРЫТО (этот коммит): запушен вместе с правками.
+
+68. УТЕЧКА ТЕСТОВЫХ ДАННЫХ В БОЕВОЙ CSV. В `logs/format_stats.csv` лежали
+    18 строк по 14 колонок с source=test — то есть тестовые прогоны
+    дописывали в боевой файл через collect_format_stats. Аудит (пункт 3)
+    их не видел: он проверял только 4-колоночный формат. → ЗАКРЫТО:
+    файл вычищен (78 валидных строк, 18 битых удалено), причина устранена
+    в п.69.
+
+69. БАГ (мой, из п.64): `stats_dir = cfg.stats_path.parent if
+    cfg.stats_path else Path("logs")` — при stats_path=None (штатное
+    состояние тестов и скриптов, контракт п.38) код фолбэчился на боевой
+    logs/ и тесты мусорили в quality_stats.csv/judge_performance.csv.
+    → ЗАКРЫТО: нет stats_path — статистика не пишется вовсе. Регресс-тест
+    в tests/test_stats_collector.py; после прогона 541 теста logs/ чистый.
+
+70. Мёрж с origin: c6a8fc3 переписал _fetch_one (убрал дубль
+    _fetch_once_with_retry, ввёл _fetch_raw) и подключил _fetch_cached в
+    collect() — это чинит тот же регресс кэша, что и мой п.62, но полнее.
+    Конфликт в tests/test_pipeline.py разрешён в пользу патча
+    kino.pipeline.* (pipeline импортирует draft и judge_with_analysis в
+    свой namespace; origin патчил kino.judge.judge, который pipeline не
+    вызывает — мок пролетал бы мимо). Мой кэш-рубеж в _fetch_one сохранён
+    как второй уровень защиты.

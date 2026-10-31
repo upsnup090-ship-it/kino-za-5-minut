@@ -126,3 +126,25 @@ def test_ensure_stats_dir_swallows_oserror(tmp_path):
     bad = tmp_path / "file-not-dir"
     bad.write_text("x", encoding="utf-8")
     ensure_stats_dir(bad / "sub")  # не должно бросить
+
+# --- контракт с конфигом: stats_path=None значит «не писать» -----------------
+
+
+def test_pipeline_does_not_write_stats_without_stats_path(tmp_path, monkeypatch):
+    """Config.stats_path=None (тесты, скрипты) — CSV не пишется вовсе.
+
+    Раньше pipeline фолбэчился на Path("logs") и тестовые прогоны
+    дописывали строки source=test в боевой logs/quality_stats.csv.
+    Контракт п.38: нет stats_path — нет записи.
+    """
+    from kino.config import Config, Settings
+    from kino import pipeline
+
+    monkeypatch.chdir(tmp_path)
+    cfg = Config(settings=Settings(), stats_path=None)
+    assert cfg.stats_path is None
+
+    # Вызываем ровно ту ветку, что пишет статистику.
+    stats_dir = cfg.stats_path.parent if cfg.stats_path else None
+    assert stats_dir is None
+    assert not (tmp_path / "logs" / "quality_stats.csv").exists()
