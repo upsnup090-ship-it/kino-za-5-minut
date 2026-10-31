@@ -91,36 +91,6 @@ def escape_control_chars(blob: str) -> str:
     return "".join(out)
 
 
-# Признак оборванной фразы в спасённом тексте: модель успела закрыть кавычку,
-# но не закончила мысль. Обрезок уходит в пост как есть, если его не отсечь.
-_OPEN_TAIL_RE = re.compile(r"(?:[«„\"(]|—|\s(?:и|а|но|что|как|по|на|в|с|к|из|за|от|для))\s*$")
-
-
-def _trim_incomplete_tail(value: str) -> str:
-    """Отсекает оборванный хвост у спасённого текста.
-
-    Спасатель берёт значения регуляркой, поэтому в них попадает и незаконченная
-    фраза вида «...где он признался, что «был, по сути…». Такой обрезок в подписи
-    выглядит как ошибка публикации, поэтому режем до последнего законченного
-    предложения, а если его нет — до последнего слова.
-    """
-    text = value.strip()
-    if not text:
-        return ""
-    # Незакрытая кавычка/скобка — явный признак обрыва.
-    if text.count("«") > text.count("»") or text.count("(") > text.count(")"):
-        cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
-        if cut > 0:
-            return text[: cut + 1].strip()
-        return text.rsplit(" ", 1)[0].strip() if " " in text else ""
-    if _OPEN_TAIL_RE.search(text):
-        cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
-        if cut > 0:
-            return text[: cut + 1].strip()
-        return text.rsplit(" ", 1)[0].strip() if " " in text else ""
-    return text
-
-
 def salvage_partial(text: str, keys: tuple[str, ...]) -> dict | None:
     """Вытаскивает поля из обрезанного JSON.
 

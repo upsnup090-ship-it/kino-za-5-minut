@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from kino.choose import Choice
 from kino.config import Config
