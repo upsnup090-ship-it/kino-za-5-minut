@@ -45,6 +45,22 @@ class TgError(Exception):
         super().__init__(sanitize(message))
 
 
+class TgConflict(TgError):
+    """`409 Conflict` — другой процесс уже читает `getUpdates` этим токеном.
+
+    Отдельный тип, потому что реакция другая: повторять бессмысленно, пока
+    второй процесс жив. Админка обязана сказать это внятно и уйти в
+    длинный backoff, а не долбить Telegram каждые две секунды.
+
+    Практический источник: два экземпляра `kino admin` (systemd + ручной
+    запуск), или админка и старый бот на одном `BOT_TOKEN`.
+    """
+
+    def __init__(self, message: str, *, retry_after: float = 60.0) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def _url(cfg: Config, method: str) -> str:
     if not cfg.bot_token:
         raise TgError("BOT_TOKEN не задан: админка без него не работает")
@@ -98,6 +114,22 @@ def call(
             if attempt < max_attempts - 1:
                 time.sleep(wait)
             continue
+
+        if response.status_code == 409:
+            # Другой процесс читает getUpdates этим токеном. Повтор не
+            # поможет, пока он жив: это не сетевая ошибка, а конфликт права
+            # на апдейты. Отдаём отдельный тип — цикл админки уйдёт в backoff
+            # и напишет человеку, что именно случилось.
+            description = ""
+            try:
+                description = str(response.json().get("description", ""))
+            except ValueError:
+                description = response.text[:200]
+            raise TgConflict(
+                f"{method}: HTTP 409 — {description or 'Conflict'}. "
+                "Похоже, другой процесс (systemd или ручной запуск) уже "
+                "читает апдейты этим токеном."
+            )
 
         if response.status_code >= 400:
             raise TgError(f"{method}: HTTP {response.status_code} {response.text[:200]}")

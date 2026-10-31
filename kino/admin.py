@@ -53,6 +53,12 @@ SLOTS_PER_DAY_WARN = 10
 #: Сколько записей журнала показывать на экране прогонов.
 RUNS_SCREEN_LIMIT = 20
 
+#: Пауза при `409 Conflict` (другой процесс читает апдейты): старт и потолок.
+#: Начинаем с минуты — второй экземпляр обычно замечают и гасят за это время;
+#: потолок 15 минут нужен, чтобы ошибочно запущенный дубль не заливал лог.
+CONFLICT_BACKOFF_START = 60.0
+CONFLICT_BACKOFF_MAX = 900.0
+
 
 @dataclass
 class Reply:
@@ -656,19 +662,59 @@ def _dispatch(cfg: Config, update: dict, now: datetime | None) -> bool:
 
 
 def run(cfg: Config, *, once: bool = False, tick: float = 2.0) -> int:
-    """Цикл админки. `once` — один опрос и выход (для отладки и тестов)."""
+    """Цикл админки. `once` — один опрос и выход (для отладки и тестов).
+
+    Две разные реакции на сбой опроса:
+
+    - **`409 Conflict`** — другой процесс уже читает апдейты этим токеном.
+      Повтор каждые две секунды не поможет и только засоряет лог, поэтому
+      первое сообщение пишется как ERROR с объяснением, дальше — молчание,
+      и backoff растёт до `CONFLICT_BACKOFF_MAX`. Как только опрос снова
+      пошёл — пишем, что конфликт ушёл.
+    - **всё остальное** — обычный WARNING и короткая пауза: сеть моргнула,
+      Telegram ответил 502, прокси лёг. Это проходит само.
+    """
     import time
+
+    from kino.tg_api import TgConflict
 
     if not cfg.admin_chat_id:
         logger.error("админка: ADMIN_CHAT_ID не задан — работать некому")
         return 1
     offset: int | None = None
     logger.info("админка запущена, чат %s", cfg.admin_chat_id)
+
+    #: Растёт вдвое на каждом подряд идущем конфликте, сбрасывается успехом.
+    conflict_backoff = CONFLICT_BACKOFF_START
+    #: Сообщение печатается один раз на серию, а не на каждую попытку.
+    conflict_reported = False
+
     while True:
         try:
             offset, handled = poll_once(cfg, offset)
             if handled:
                 logger.info("админка: обработано апдейтов %d", handled)
+            if conflict_reported:
+                logger.info("админка: 409 ушёл, опрос снова работает")
+                conflict_reported = False
+            conflict_backoff = CONFLICT_BACKOFF_START
+        except TgConflict as exc:
+            if not conflict_reported:
+                logger.error(
+                    "админка: %s Ждём до %.0fс между попытками. "
+                    "Проверь: `systemctl status kino-admin` и не запущен ли "
+                    "второй экземпляр вручную.",
+                    exc,
+                    exc.retry_after,
+                )
+                conflict_reported = True
+            else:
+                logger.debug("админка: 409 всё ещё держится")
+            if once:
+                return 1
+            time.sleep(min(conflict_backoff, CONFLICT_BACKOFF_MAX))
+            conflict_backoff = min(conflict_backoff * 2, CONFLICT_BACKOFF_MAX)
+            continue
         except Exception as exc:  # noqa: BLE001 — цикл 24/7 не должен умирать
             logger.warning("админка: опрос не удался (%s)", exc)
         if once:
