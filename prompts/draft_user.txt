@@ -18,6 +18,10 @@ announcement, review, comparison, riddle,
 fact_source, news, quote, trailer, video, collage,
 production, interview, opinion.
 
+Поле question заполняй только для форматов poll, riddle, news и opinion.
+Для остальных верни пустую строку: лишний вопрос отдельным блоком в подписи
+не нужен.
+
 Заполняй только поля формата {format}; остальные — [] для массивов, null для
 объектов, "" для строк.
 

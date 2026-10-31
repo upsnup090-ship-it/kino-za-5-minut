@@ -29,11 +29,18 @@ DEFAULT_DRAFT_USER = (
     "Дата материала: {pub_date}\n"
     "Заголовок: {title}\n"
     "Описание: {snippet}\n"
-    "Верни JSON: headline, text, question, film, director, cast, release, studio, wiki, "
+    "Верни JSON: headline, text, key_moment, hashtags, film, director, cast, release, studio, wiki, "
     "fact_source, news, quote, trailer, video, collage, production, interview, opinion, "
     "poll_options, video_url, infographic, image_candidates, announcement, review, "
     "comparison, riddle."
 )
+
+#: Форматы, где question несёт смысл: вопрос опроса, вопрос загадки, вопрос
+#: читателям в новости и в аналитике. В остальных 12 форматах он лишний —
+#: caption.py:581 рисует его отдельным блоком для любого kind != "poll",
+#: и пост facts/quote/review получал абзац «❓ ...», которого в формате нет.
+#: Правило 22 судьи снимает такой блок постфактум; здесь — чтобы не писать.
+QUESTION_FORMATS = frozenset({"poll", "riddle", "news", "opinion"})
 DEFAULT_JUDGE_SYSTEM = (
     "Ты — строгий фактчекер и редактор Telegram-канала о кино. "
     "Работай только с материалом ниже. Верни строго JSON без markdown. "
