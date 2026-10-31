@@ -208,6 +208,10 @@ class RunResult:
     #: Прогон не успел завершить пост из-за исчерпания бюджета времени.
     aborted: bool = False
     abort_reason: str = ""
+    #: Ссылка материала, из которого собран пост. Нужна журналу прогонов
+    #: (`runs.link`) и админке: «что было в 21:20» должно отвечать без
+    #: чтения state.json и логов.
+    link: str = ""
 
 
 def _reject_run(cfg: Config, choice: Choice, state: State, reason: str, *, dry_run: bool) -> None:
@@ -484,6 +488,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 published=False,
                 dry_run=dry_run,
                 verdict=verdict,
+                link=choice.item.link,
             )
 
         # Точечное уведомление о низком качестве: оценка судьи есть и ниже
@@ -628,6 +633,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             verdict=verdict,
             kind=kind,
             requested_kind=requested_kind,
+            link=choice.item.link,
         )
     finally:
         lock.release()
