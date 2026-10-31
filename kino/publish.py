@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -268,6 +269,12 @@ def notify_admin(cfg: Config, text: str) -> None:
     logger.error("уведомление админу не доставлено за %d попыток", attempts)
 
 
+def _hash_post_content(caption: str, image_url: str, kind: str, link_url: str) -> str:
+    """Хэширует содержимое поста для дедупликации."""
+    key = f"{caption}{image_url}{kind}{link_url}"
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
 def publish(
     cfg: Config,
     caption: str,
@@ -290,6 +297,14 @@ def publish(
     if not cfg.channel_chat_id:
         raise PublishError("CHANNEL_CHAT_ID не задан")
     chat = cfg.channel_chat_id
+
+    # Хэшируем содержимое поста для дедупликации
+    post_hash = _hash_post_content(caption, image_url, kind, link_url)
+    logger.debug("post hash: %s", post_hash)
+    
+    # Проверяем, был ли такой пост уже опубликован (в будущем можно сохранять в state)
+    # Для простоты пока просто логируем хэш
+    logger.info("публикация поста с хэшем: %s", post_hash)
 
     sent: bool | None = None
     if kind == "link" and link_url:

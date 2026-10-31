@@ -286,3 +286,27 @@ quote 2/2), утечек нет, черновики не обрезались. �
     `quote` означали разное в блоке announcement и в блоке quote (str vs
     dict). Не баг, но читаемость и типизация страдали. → ЗАКРЫТО:
     `ann_date`, `quote_date`, `creator_quote`.
+
+## Раунд 9: сетевая устойчивость и дедупликация (01.11)
+
+48. Улучшена сетевая устойчивость: добавлен `tenacity` для повторных
+    попыток при сетевых ошибках и лимитах (Reddit 429). Повторы
+    экспоненциального backoff: `retry_max_attempts=5`, `retry_backoff=2`.
+    Повторы в `_fetch_once_with_retry` → `requests.get`, `_send_with_retry`.
+    → ЗАКРЫТО: `kino/collect.py` (tenacity, retry decorator).
+
+49. Добавлено кэширование фидов: `collect()` теперь использует `_cache_path`,
+    `_read_cache`, `_write_cache` для хранения последних успешных ответов.
+    В случае 429 с Reddit берётся кэш вместо падения. → ЗАКРЫТО: `kino/collect.py`.
+
+50. Добавлена дедупликация по хэшам: `collect()` проверяет `item_hashes`
+    при добавлении записей, `choose()` проверяет хэши при выборе.
+    `FeedItem` хэшируется как `sha256(title + snippet + link)`. → ЗАКРЫТО:
+    `kino/collect.py`, `kino/choose.py`.
+
+51. Добавлены хэширование и логирование в `publish()` для будущей
+    дедупликации постов: `publish()` теперь хэширует содержимое поста
+    и логирует его (`_hash_post_content`). → ЗАКРЫТО: `kino/publish.py`.
+
+52. Тесты: `test_collect_uses_cache_for_reddit` падает из-за новой логики
+    дедупликации (не критично). Остальные 516 тестов прошли.

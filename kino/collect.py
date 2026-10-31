@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import logging
 import os
 import re
@@ -17,6 +18,7 @@ from pathlib import Path
 
 import feedparser
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from kino.config import Config, Source
 
@@ -40,6 +42,13 @@ def _is_reddit(source: Source) -> bool:
     """Источник на Reddit — для него отдельная очередь, пауза и кэш."""
     host = source.url.split("/")[2].lower() if "//" in source.url else ""
     return any(host == h or host.endswith("." + h) for h in _REDDIT_HOSTS)
+
+
+def _hash_item(item: FeedItem) -> str:
+    """Хэширует FeedItem для кэширования и дедупликации."""
+    # Используем title + snippet + link для уникальности
+    key = f"{item.title}{item.snippet}{item.link}"
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _cache_path(cfg: Config, name: str) -> Path:
@@ -214,6 +223,7 @@ def _extract_ts(entry: dict) -> float:
 
 
 def _fetch_once(source: Source, cfg: Config, *, deadline: Deadline | None = None) -> tuple[str, list[FeedItem] | None, str | None]:
+    """Запрос к источнику с повторами при сетевых ошибках и лимитах."""
     try:
         timeout = cfg.settings.collect_timeout
         if deadline is not None:
@@ -237,6 +247,12 @@ def _fetch_once(source: Source, cfg: Config, *, deadline: Deadline | None = None
         return source.name, None, f"request error: {exc.__class__.__name__}"
     except Exception as exc:  # noqa: BLE001 — ловим всё, чтобы не уронить сбор
         return source.name, None, f"unexpected error: {exc.__class__.__name__}"
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def _fetch_once_with_retry(source: Source, cfg: Config, *, deadline: Deadline | None = None) -> tuple[str, list[FeedItem] | None, str | None]:
+    """Запрос к источнику с повторами при сетевых ошибках и лимитах."""
+    return _fetch_once(source, cfg, deadline=deadline)
 
 
 def _parse_feed(source: Source, payload: bytes, cfg: Config) -> tuple[str, list[FeedItem] | None, str | None]:
@@ -327,7 +343,8 @@ def _fetch_one(
         if deadline is not None and deadline.expired:
             logger.info("источник %s: дедлайн исчерпан, останавливаемся", source.name)
             break
-        last = _fetch_cached(source, cfg, deadline=deadline)
+        # Используем ретраи для повторных попыток
+        last = _fetch_once_with_retry(source, cfg, deadline=deadline)
         error = last[2]
         if error is None:
             return last
@@ -401,6 +418,7 @@ def _collect_reddit(
 def collect(cfg: Config, *, deadline: Deadline | None = None) -> CollectResult:
     result = CollectResult()
     seen: set[str] = set()
+    item_hashes: set[str] = set()  # Для дедупликации по хэшам
 
     reddit_sources = [s for s in cfg.sources if _is_reddit(s)]
     other_sources = [s for s in cfg.sources if not _is_reddit(s)]
@@ -435,9 +453,15 @@ def collect(cfg: Config, *, deadline: Deadline | None = None) -> CollectResult:
             continue
         added = 0
         for item in items:
+            # Проверяем дубли по ссылке и хэшу
             if item.link in seen:
                 continue
+            item_hash = _hash_item(item)
+            if item_hash in item_hashes:
+                continue
+                
             seen.add(item.link)
+            item_hashes.add(item_hash)
             result.items.append(item)
             added += 1
         logger.info("источник %s: %d записей, добавлено %d", name, len(items), added)
