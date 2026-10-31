@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import csv
 
+import pytest
+
 from kino.stats_collector import (
     collect_format_stats,
     collect_judge_performance_stats,
@@ -52,7 +54,9 @@ def test_quality_csv_has_expected_header(tmp_path):
     assert header[0] == "timestamp"
     assert "duration" in header
     assert "sad_topic" in header
-    assert len(header) == 14
+    assert "overall_quality" in header
+    assert "recommendations_count" in header
+    assert len(header) == 16
 
 
 def test_judge_performance_goes_to_own_file(tmp_path):
@@ -126,6 +130,65 @@ def test_ensure_stats_dir_swallows_oserror(tmp_path):
     bad = tmp_path / "file-not-dir"
     bad.write_text("x", encoding="utf-8")
     ensure_stats_dir(bad / "sub")  # не должно бросить
+
+
+# --- overall_quality и recommendations_count ---------------------------------
+
+
+def test_overall_quality_and_recommendations_written(tmp_path):
+    """Раньше эти значения считались и выбрасывались — теперь в CSV."""
+    collect_format_stats(
+        "news", "s", 1.0, 7, False, _DRAFT, _JUDGE,
+        overall_quality=5.6, recommendations_count=3, stats_dir=tmp_path,
+    )
+    with (tmp_path / "quality_stats.csv").open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["overall_quality"] == "5.6"
+    assert rows[0]["recommendations_count"] == "3"
+
+
+def test_overall_quality_none_writes_empty(tmp_path):
+    """Нет оценки судьи — пустая строка, а не 0 (0 значил бы «оценено как плохое»)."""
+    collect_format_stats(
+        "news", "s", 1.0, 0, False, _DRAFT, _JUDGE,
+        overall_quality=None, stats_dir=tmp_path,
+    )
+    with (tmp_path / "quality_stats.csv").open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["overall_quality"] == ""
+
+
+def test_report_aggregates_overall_and_recommendations(tmp_path):
+    collect_format_stats(
+        "news", "s", 1.0, 7, False, _DRAFT, _JUDGE,
+        overall_quality=5.6, recommendations_count=3, stats_dir=tmp_path,
+    )
+    collect_format_stats(
+        "news", "s", 1.0, 8, False, _DRAFT, _JUDGE,
+        overall_quality=6.0, recommendations_count=1, stats_dir=tmp_path,
+    )
+    # Один пост без оценки — не должен уронить среднее.
+    collect_format_stats(
+        "news", "s", 1.0, 0, False, _DRAFT, _JUDGE,
+        overall_quality=None, recommendations_count=0, stats_dir=tmp_path,
+    )
+    report = get_quality_report(tmp_path)
+    assert report["news"]["avg_overall_quality"] == pytest.approx(5.8, abs=0.01)
+    assert report["news"]["avg_recommendations"] == pytest.approx(1.33, abs=0.01)
+
+
+def test_report_old_rows_without_new_columns(tmp_path):
+    """Старый CSV (без overall_quality) читается: среднее по оценке — None."""
+    (tmp_path / "quality_stats.csv").write_text(
+        "timestamp,format,source,duration,quality_score,sad_topic,draft_length,"
+        "has_quote,has_video,has_facts,keywords_count,headline_length,word_count,"
+        "sentence_count\n"
+        "2026-01-01,news,s,1.0,7,False,100,False,False,False,0,10,5,2\n",
+        encoding="utf-8",
+    )
+    report = get_quality_report(tmp_path)
+    assert report["news"]["avg_overall_quality"] is None
+    assert report["news"]["avg_recommendations"] == 0.0
 
 # --- контракт с конфигом: stats_path=None значит «не писать» -----------------
 

@@ -42,12 +42,18 @@ def collect_format_stats(
     draft_metrics: Dict[str, Any],
     judge_feedback: Dict[str, Any],
     *,
+    overall_quality: float | None = None,
+    recommendations_count: int = 0,
     stats_dir: str | Path = "logs",
 ) -> None:
     """Дописывает строку расширенной метрики качества в quality_stats.csv.
 
     Не трогает format_stats.csv — тот пишет record_format_stat. Ошибки
     записи не роняют пайплайн (метрика вторична по отношению к посту).
+
+    overall_quality — итог evaluate_content_quality (0.7*quality + 0.3*длина).
+    recommendations_count — сколько рекомендаций выдал анализатор. Оба раньше
+    считались и выбрасывались; теперь попадают в CSV для отчёта.
     """
     stats_file = Path(stats_dir) / "quality_stats.csv"
     ensure_stats_dir(stats_file.parent)
@@ -56,6 +62,7 @@ def collect_format_stats(
         "timestamp", "format", "source", "duration", "quality_score",
         "sad_topic", "draft_length", "has_quote", "has_video", "has_facts",
         "keywords_count", "headline_length", "word_count", "sentence_count",
+        "overall_quality", "recommendations_count",
     ]
     row = {
         "timestamp": datetime.now().isoformat(),
@@ -72,6 +79,8 @@ def collect_format_stats(
         "headline_length": draft_metrics.get("headline_length", 0),
         "word_count": draft_metrics.get("word_count", 0),
         "sentence_count": draft_metrics.get("sentence_count", 0),
+        "overall_quality": "" if overall_quality is None else overall_quality,
+        "recommendations_count": recommendations_count,
     }
     try:
         new_file = not stats_file.exists()
@@ -143,6 +152,9 @@ def get_quality_report(stats_dir: str | Path = "logs") -> Dict[str, Any]:
                         "avg_quality": 0.0,
                         "total_duration": 0.0,
                         "sad_count": 0,
+                        "total_overall": 0.0,
+                        "overall_count": 0,
+                        "total_recommendations": 0,
                     }
                 stats = format_stats[format_name]
                 stats["count"] += 1
@@ -150,6 +162,14 @@ def get_quality_report(stats_dir: str | Path = "logs") -> Dict[str, Any]:
                 stats["total_duration"] += float(row["duration"])
                 if row["sad_topic"] == "True":
                     stats["sad_count"] += 1
+                # overall_quality может быть пустым (нет оценки судьи).
+                if row.get("overall_quality", "") not in ("", None):
+                    stats["total_overall"] += float(row["overall_quality"])
+                    stats["overall_count"] += 1
+                if row.get("recommendations_count", ""):
+                    stats["total_recommendations"] += int(
+                        row["recommendations_count"]
+                    )
 
             for stats in format_stats.values():
                 stats["avg_quality"] = round(
@@ -157,6 +177,15 @@ def get_quality_report(stats_dir: str | Path = "logs") -> Dict[str, Any]:
                 )
                 stats["avg_duration"] = round(
                     stats["total_duration"] / stats["count"], 2
+                )
+                # Средняя итоговая оценка — только по постам, где она была.
+                stats["avg_overall_quality"] = (
+                    round(stats["total_overall"] / stats["overall_count"], 3)
+                    if stats["overall_count"]
+                    else None
+                )
+                stats["avg_recommendations"] = round(
+                    stats["total_recommendations"] / stats["count"], 2
                 )
     except (OSError, ValueError, KeyError) as exc:
         return {"error": f"Ошибка чтения статистики: {exc}"}

@@ -246,6 +246,38 @@ def _reject_run(cfg: Config, choice: Choice, state: State, reason: str, *, dry_r
         pass
 
 
+def _notify_low_quality(
+    cfg: Config,
+    choice: Choice,
+    final_data: dict,
+    *,
+    dry_run: bool,
+) -> None:
+    """Точечное уведомление админу при низкой оценке качества.
+
+    Срабатывает только когда судья реально оценил пост ниже порога (5/10).
+    В dry-run не шлём — это гарантия режима. Ошибки доставки не роняют прогон.
+    """
+    if dry_run:
+        return
+    analysis = final_data.get("analysis") or {}
+    judge_feedback = analysis.get("judge_feedback") or {}
+    score = judge_feedback.get("quality_score")
+    if not isinstance(score, int) or score >= 5:
+        return
+    recommendations = analysis.get("recommendations") or []
+    first = recommendations[0] if recommendations else "рекомендаций нет"
+    try:
+        from kino.publish import notify_admin
+
+        notify_admin(
+            cfg,
+            f"низкое качество {score}/10: {choice.item.title[:100]} — {first}",
+        )
+    except Exception:  # noqa: BLE001 — уведомление не должно ронять прогон
+        pass
+
+
 def _post_hash(caption: str, image_url: str, kind: str, link_url: str) -> str:
     """Тот же хэш, что считает publish._hash_post_content.
 
@@ -424,6 +456,8 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 judge_feedback.get("is_sad", False),
                 draft_metrics,
                 judge_feedback,
+                overall_quality=analysis.get("overall_quality"),
+                recommendations_count=len(analysis.get("recommendations", [])),
                 stats_dir=stats_dir,
             )
 
@@ -449,6 +483,11 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 dry_run=dry_run,
                 verdict=verdict,
             )
+
+        # Точечное уведомление о низком качестве: оценка судьи есть и ниже
+        # порога. Не спам — срабатывает редко, по делу. Админ видит оценку и
+        # первую рекомендацию, чтобы понять, что с текстом не так.
+        _notify_low_quality(cfg, choice, final_data, dry_run=dry_run)
 
         wiki_title = str(final_data.get("wiki", "")).strip()
         # Картинка: сначала иллюстрация из самого фида (её отдал источник

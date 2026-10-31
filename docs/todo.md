@@ -454,3 +454,25 @@ quote 2/2), утечек нет, черновики не обрезались. �
     контракт через judge(), граничные значения quality и работа словаря.
 
 Тесты: 541 → 571 passed. mypy: 71 файл, 0 ошибок. Аудит: 29 ✓, 0 ✗.
+
+## Раунд 14: overall_quality и recommendations — в статистику и уведомление
+
+76. overall_quality и recommendations считались в evaluate_content_quality
+    и выбрасывались: pipeline брал из final_data["analysis"] только
+    draft_metrics и judge_feedback. Формула 0.7/0.3 работала вхолостую.
+    → ЗАКРЫТО: collect_format_stats принимает overall_quality и
+    recommendations_count, пишет их в quality_stats.csv (колонки 15-16).
+    get_quality_report агрегирует avg_overall_quality (только по постам с
+    оценкой) и avg_recommendations.
+
+77. Точечное уведомление админу о низком качестве. _notify_low_quality в
+    pipeline: при quality_score < 5 шлёт одно сообщение с оценкой и первой
+    рекомендацией. Не спам — срабатывает редко, по делу. В dry-run не шлёт,
+    ошибки доставки глотает. → ЗАКРЫТО.
+
+78. Тесты: test_stats_collector.py +4 (запись новых колонок, None → пустая
+    строка, агрегация, старый CSV без колонок читается), новый
+    test_low_quality_notify.py (8 тестов: порог 5, отсутствие оценки,
+    dry-run, первая рекомендация, сбой доставки). → ЗАКРЫТО.
+
+Тесты: 571 → 583 passed. mypy: 72 файла, 0 ошибок. Аудит: 29 ✓, 0 ✗.
