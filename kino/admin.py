@@ -78,41 +78,119 @@ def _btn(text: str, data: str) -> dict[str, str]:
 # --- экраны ------------------------------------------------------------------
 
 
-def screen_home(cfg: Config) -> Reply:
-    """Главный экран бота: всё, что нужно каждый день, в четыре кнопки.
+def screen_home(cfg: Config, view: str = "compact") -> Reply:
+    """Главный экран — S0 из спецификации, два режима рендера.
 
-    Публикация по расписанию — **одна** кнопка «📅 Публикации», а не меню:
-    под ней сетка, слоты и прогоны. Тестовый и финальный пост — отдельно и
-    сверху, потому что это то, что нажимают руками.
+    Не два разных экрана, а один с двумя наборами блоков (задача #74):
+
+    - **compact** — что нужно каждый день: режим, цикл, резерв, четыре
+      кнопки. Задача — за секунду понять, жив ли бот.
+    - **full** — то же плюс группы: «Управление расписанием», «Контент»,
+      «Действия». Опасное внизу: пауза и ручной прогон не должны стоять
+      рядом с «Расписание», куда жмут каждый день.
+
+    В блоке состояния обязательно режим цикла: `prod` или `dry-run`
+    (задача #75). Тестовый запуск на сервере не должен выглядеть боевым.
     """
     db = ScheduleDb(cfg.db_path)
     enabled = db.list_slots(enabled_only=True)
+    total_slots = len(db.list_slots())
     mode = cfg.settings.schedule_mode
-    if mode == "slots":
-        state = f"режим: слоты, включено {len(enabled)}"
-        if not enabled:
-            state = "режим: слоты, но включённых слотов нет"
-    else:
-        windows = ", ".join(str(w) for w in cfg.settings.schedule_windows)
-        state = f"режим: окна {windows}"
-
     available, total = _reserve_stats(cfg)
-    lines = [
-        "🎬 Кино за 5 минут",
-        state,
-        f"резерв: {available} из {total}",
-        "",
-        "Тестовый пост — в личку, канал и state не трогаются.",
-        "Финальный — в канал, как по расписанию.",
+    paused = _safe_paused(db)
+
+    lines = ["🎬 Кино за 5 минут" + (" · админка" if view == "full" else ""), ""]
+    lines.append(_serve_state_line(db))
+    lines.append(_last_run_line(db))
+    lines.append(f"резерв: {available} из {total}")
+    if paused:
+        lines.append("⏸ ПУБЛИКАЦИИ НА ПАУЗЕ")
+
+    if view == "full":
+        if mode == "slots":
+            lines.append(f"режим расписания: сетка слотов")
+            lines.append(f"слотов в неделю: {total_slots} · включено: {len(enabled)}")
+        else:
+            windows = ", ".join(str(w) for w in cfg.settings.schedule_windows)
+            lines.append(f"режим расписания: окна {windows}")
+        lines.append(f"часовой пояс: {cfg.settings.timezone}")
+        lines.append("")
+        lines.append("Тестовый пост — в личку, канал и state не трогаются.")
+        lines.append("Финальный — в канал, как по расписанию.")
+
+    keyboard: list[list[dict[str, str]]] = [
+        [_btn("🧪 Тестовый пост", "post:test"), _btn("🚀 Финальный пост", "post:final")],
+        [_btn("📅 Расписание", "nav:sched"), _btn("🗂 Прогоны", "nav:runs:0")],
     ]
-    return Reply(
-        text="\n".join(lines),
-        keyboard=[
-            [_btn("🧪 Тестовый пост", "post:test")],
-            [_btn("🚀 Финальный пост", "post:final")],
-            [_btn("📅 Публикации", "schedule")],
-        ],
+    if view == "compact":
+        keyboard.append([_btn("⋯ Подробнее", "nav:full")])
+    else:
+        keyboard.append([_btn("👁 7 дней", "nav:next7"), _btn("🗄 Резерв", "nav:reserve")])
+        keyboard.append([_btn("📊 Итог за вчера", "nav:today")])
+        # Опасное — отдельной группой внизу, и только здесь (задача #77):
+        # в верхнем ряду пауза дублировала бы действие, которое не должно
+        # нажиматься случайно.
+        keyboard.append([
+            _btn("▶️ Возобновить" if paused else "⏸ Пауза публикаций", "state:pause"),
+            _btn("🔄 Обновить", "nav:state:refresh"),
+        ])
+        keyboard.append([_btn("◀️ Свернуть", "nav:compact")])
+    return Reply(text="\n".join(lines), keyboard=keyboard)
+
+
+def _safe_paused(db: Any) -> bool:
+    """Пауза из БД; недоступная БД — «не на паузе», а не падение экрана."""
+    try:
+        return bool(db.is_paused())
+    except (ScheduleDbError, AttributeError):
+        return False
+
+
+def _last_run_line(db: Any) -> str:
+    """Последний прогон одной строкой: когда, исход, формат, оценка."""
+    try:
+        records = db.recent_runs(limit=1)
+    except (ScheduleDbError, AttributeError):
+        return "последний прогон: нет данных"
+    if not records:
+        return "последний прогон: ещё не было"
+    rec = records[0]
+    stamp = rec.slot_at.replace("T", " ")[:16]
+    tail = f"{stamp} · {rec.outcome}"
+    if rec.format:
+        tail += f" · {rec.format}"
+    if rec.quality_score is not None:
+        tail += f" · q{rec.quality_score:g}"
+    if rec.is_manual:
+        tail += " · ✋"
+    return f"последний: {tail}"
+
+
+def _serve_state_line(db: Any) -> str:
+    """Строка о публикующем цикле: `prod`/`dry-run`, когда стартовал.
+
+    Цикл может быть не запущен вовсе — тогда честнее сказать «цикл не
+    запущен», чем показывать `prod` по умолчанию: экран не должен врать
+    о том, что посты выходят сами.
+    """
+    from kino.schedule_db import (
+        META_SERVE_MODE,
+        META_SERVE_STARTED,
+        ScheduleDbError,
     )
+
+    try:
+        mode = db.get_meta(META_SERVE_MODE)
+        started = db.get_meta(META_SERVE_STARTED)
+    except (ScheduleDbError, AttributeError):
+        return "цикл: состояние неизвестно"
+    if mode is None:
+        return "цикл: не запущен"
+    label = "боевой" if mode == "prod" else "тестовый (dry-run)"
+    if started:
+        stamp = started.replace("T", " ")[:16]
+        return f"цикл: {label}, с {stamp}"
+    return f"цикл: {label}"
 
 
 def screen_schedule(cfg: Config, now: datetime | None = None) -> Reply:
@@ -468,7 +546,13 @@ def _err(message: str) -> Reply:
 
 
 def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Reply:
-    """Обрабатывает нажатие кнопки. `data` — callback_data."""
+    """Обрабатывает нажатие кнопки. `data` — callback_data.
+
+    Схема колбэков — из спецификации §7.4: `nav:<экран>`, `slot:<id>`,
+    `state:pause`, `post:<mode>`. Старые имена (`home`, `schedule`, `runs`)
+    остаются рабочими: у владельца в чате висят сообщения со старыми
+    кнопками, и «кнопка устарела» на них — плохой ответ.
+    """
     db = ScheduleDb(cfg.db_path)
     action, _, arg = (data or "").partition(":")
 
@@ -487,6 +571,12 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
         return screen_preview(cfg, now)
     if action == "runs":
         return screen_runs(cfg)
+
+    if action == "nav":
+        return _handle_nav(cfg, arg, now)
+    if action == "state":
+        return _handle_state(cfg, arg, now)
+
     if action == "add":
         return Reply(
             text=(
@@ -526,6 +616,145 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
         return screen_slot(cfg, slot_id)
 
     return screen_schedule(cfg, now)
+
+
+# --- навигация и пауза -------------------------------------------------------
+
+
+def _handle_nav(cfg: Config, arg: str, now: datetime | None) -> Reply:
+    """Переход между экранами по `nav:<экран>`.
+
+    `nav:today` — не «вчера» и не «сегодня» наугад: экран называется
+    «Итог за вчера», и колбэк обязан означать ровно это (задача #78).
+    Неизвестный переход возвращает главный экран, а не исключение.
+    """
+    if arg in ("full", "compact"):
+        return screen_home(cfg, view=arg)
+    if arg == "sched":
+        return screen_schedule(cfg, now)
+    if arg == "next7":
+        return screen_preview(cfg, now)
+    if arg == "reserve":
+        return screen_reserve(cfg)
+    if arg == "today":
+        return screen_today(cfg, now)
+    if arg.startswith("runs"):
+        return screen_runs(cfg)
+    if arg in ("state", "state:refresh"):
+        return screen_home(cfg, view="full")
+    return screen_home(cfg)
+
+
+def _handle_state(cfg: Config, arg: str, now: datetime | None) -> Reply:
+    """Действия над публикацией: `state:pause`.
+
+    Пауза — не «пропустить слоты»: при снятии слот возвращается в работу.
+    Иначе пауза на час съела бы слот до конца недели.
+    """
+    if arg == "pause":
+        db = ScheduleDb(cfg.db_path)
+        try:
+            was_paused = db.is_paused()
+            db.set_paused(not was_paused)
+        except ScheduleDbError as exc:
+            return Reply(
+                text=f"❌ Не удалось переключить паузу: {exc}",
+                keyboard=[[_btn("◀️ Назад", "nav:full")]],
+            )
+        reply = screen_home(cfg, view="full")
+        head = (
+            "⏸ Публикации на паузе. Слоты не публикуются и не пропускаются — "
+            "после снятия вернутся в работу."
+            if not was_paused
+            else "▶️ Пауза снята, публикации по расписанию снова идут."
+        )
+        reply.text = f"{head}\n\n{reply.text}"
+        return reply
+    return screen_home(cfg, view="full")
+
+
+def screen_reserve(cfg: Config) -> Reply:
+    """Резерв: сколько постов доступно."""
+    available, total = _reserve_stats(cfg)
+    lines = [
+        "🗄 Резерв",
+        "",
+        f"доступно: {available} из {total}",
+        "",
+        "В резерв попадает готовый пост после реальной публикации —",
+        "страховка от пустого слота. Просроченные не берутся.",
+    ]
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[[_btn("◀️ Назад", "nav:full")]],
+    )
+
+
+def screen_today(cfg: Config, now: datetime | None = None) -> Reply:
+    """Итог за вчера: что вышло, что пропущено, средняя оценка.
+
+    Считается по `runs` за прошлые сутки. Пусто — так и говорим: нулевой
+    отчёт («всё хорошо, 0 постов») хуже честного «за вчера записей нет».
+    """
+    db = ScheduleDb(cfg.db_path)
+    moment = now or datetime.now()
+    yesterday = moment.date() - timedelta(days=1)
+
+    try:
+        records = db.recent_runs(limit=200)
+    except ScheduleDbError:
+        return Reply(
+            text="📊 Итог за вчера\n\nжурнал недоступен",
+            keyboard=[[_btn("◀️ Назад", "nav:full")]],
+        )
+
+    day_records: list[Any] = []
+    for rec in records:
+        try:
+            rec_date = datetime.fromisoformat(rec.slot_at).date()
+        except ValueError:
+            continue
+        if rec_date == yesterday:
+            day_records.append(rec)
+
+    if not day_records:
+        return Reply(
+            text=(
+                f"📊 Итог за {yesterday.strftime('%d.%m')}\n\n"
+                "записей нет — не было ни публикаций, ни пропусков"
+            ),
+            keyboard=[[_btn("◀️ Назад", "nav:full")]],
+        )
+
+    published = [r for r in day_records if r.outcome == "published"]
+    skipped = [r for r in day_records if r.outcome == "skipped"]
+    failed = [r for r in day_records if r.outcome == "failed"]
+    qualities = [r.quality_score for r in published if r.quality_score is not None]
+
+    lines = [f"📊 Итог за {yesterday.strftime('%d.%m')}", ""]
+    lines.append(f"опубликовано: {len(published)}")
+    if skipped:
+        lines.append(f"пропущено: {len(skipped)}")
+    if failed:
+        lines.append(f"сбоев: {len(failed)}")
+    if qualities:
+        avg = sum(qualities) / len(qualities)
+        lines.append(f"средняя оценка: {avg:.1f}")
+    lines.append("")
+    for rec in published:
+        stamp = rec.slot_at.replace("T", " ")[11:16]
+        tail = f"{stamp} · {rec.format or '—'}"
+        if rec.caption_len:
+            tail += f" · {rec.caption_len} симв."
+        if rec.quality_score is not None:
+            tail += f" · q{rec.quality_score:g}"
+        if rec.is_manual:
+            tail += " · ✋"
+        lines.append(tail)
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[[_btn("◀️ Назад", "nav:full")]],
+    )
 
 
 # --- постинг по кнопке -------------------------------------------------------

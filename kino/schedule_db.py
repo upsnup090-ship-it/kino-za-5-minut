@@ -56,6 +56,19 @@ DEFAULT_RETENTION_DAYS = 90
 #: Ключ в meta: сетка уже засеяна. Нужен, чтобы seed не воскрешал удалённое.
 _SEED_KEY = "seeded_at"
 
+#: Ключи в meta: в каком режиме работает публикующий цикл (`serve`).
+#: Админка читает их и показывает в блоке состояния — иначе тестовый запуск
+#: (`--dry-run`) неотличим от боевого, и «почему нет постов» разбирается
+#: по логам вместо одного взгляда на экран.
+META_SERVE_MODE = "serve_mode"          #: "prod" | "dry-run"
+META_SERVE_STARTED = "serve_started_at"  #: ISO-момент старта цикла
+META_SERVE_TICK = "serve_tick_seconds"   #: период тика, строкой
+
+#: Пауза публикаций. `"1"` — слоты не публикуются, но и не пропускаются:
+#: снятие паузы возвращает слот в работу без догонки. `"0"` или отсутствие —
+#: цикл работает обычным порядком.
+META_PAUSED = "paused"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schedule_slots (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -319,6 +332,45 @@ class ScheduleDb:
         return self._connect()
 
     # --- слоты ---
+
+    def get_meta(self, key: str) -> str | None:
+        """Значение из `meta`, или None. Служебные отметки (seed, режим цикла)."""
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key = ?", (key,)
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise ScheduleDbError(f"не прочитать meta[{key}]: {exc}") from exc
+        return str(row["value"]) if row is not None else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        """Пишет значение в `meta` (upsert)."""
+        now = _now_iso()
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                    "updated_at = excluded.updated_at",
+                    (key, value, now),
+                )
+        except sqlite3.Error as exc:
+            raise ScheduleDbError(f"не записать meta[{key}]: {exc}") from exc
+
+    def is_paused(self) -> bool:
+        """Стоит ли пауза публикаций.
+
+        Пауза — это «не публикуй сейчас», а не «пропусти слоты»: при снятии
+        слот возвращается в работу. Иначе пауза на час съедала бы слот до
+        конца недели, чего владелец не просил.
+        """
+        return self.get_meta(META_PAUSED) == "1"
+
+    def set_paused(self, paused: bool) -> None:
+        """Ставит или снимает паузу публикаций."""
+        self.set_meta(META_PAUSED, "1" if paused else "0")
+        logger.info("пауза публикаций: %s", "включена" if paused else "снята")
 
     def list_slots(self, *, enabled_only: bool = False) -> list[Slot]:
         """Все слоты, отсортированные по дню и времени."""

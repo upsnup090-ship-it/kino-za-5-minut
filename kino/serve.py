@@ -76,6 +76,31 @@ def build_schedule(cfg: Config) -> ScheduleConfig:
     )
 
 
+def _record_serve_mode(cfg: Config, *, dry_run: bool, tick: int) -> None:
+    """Пишет в `meta`, в каком режиме стартовал цикл.
+
+    Ошибка БД здесь не должна мешать публикации: это украшение экрана, а не
+    условие работы. Поэтому — WARNING и дальше.
+    """
+    from kino.schedule_db import (
+        META_SERVE_MODE,
+        META_SERVE_STARTED,
+        META_SERVE_TICK,
+        ScheduleDb,
+        ScheduleDbError,
+    )
+
+    try:
+        db = ScheduleDb(cfg.db_path)
+        db.set_meta(META_SERVE_MODE, "dry-run" if dry_run else "prod")
+        db.set_meta(META_SERVE_STARTED, datetime.now().astimezone().isoformat(timespec="seconds"))
+        db.set_meta(META_SERVE_TICK, str(tick))
+    except ScheduleDbError as exc:
+        logger.warning("serve: режим не записан в БД (%s)", exc)
+        return
+    logger.info("serve: режим %s, тик %dс", "dry-run" if dry_run else "prod", tick)
+
+
 def build_slot_config(cfg: Config) -> SlotConfig:
     """Настройки режима слотов из конфига."""
     return SlotConfig(
@@ -273,6 +298,17 @@ def _serve_slots(
                 time.sleep(max(1, tick))
                 continue
 
+            # Пауза: слот не публикуется и не помечается отработанным.
+            # Иначе пауза на час съела бы слот до конца недели — при снятии
+            # он должен вернуться в работу без догонки.
+            if db.is_paused():
+                if iterations % 30 == 1:  # раз в ~30 тиков, чтобы не спамить
+                    logger.info("пауза публикаций: слоты не обрабатываются")
+                if once:
+                    break
+                time.sleep(max(1, tick))
+                continue
+
             # 1. Просроченные слоты помечаем skipped, чтобы не догонять их.
             # Список уже отработанных берём из `runs` — иначе каждый тик
             # заново писал бы те же пропуски (за сутки простоя — сотни строк).
@@ -379,6 +415,11 @@ def serve(cfg: Config, *, dry_run: bool = False, once: bool = False, tick_second
 
     stopper = Stopper()
     stopper.install()
+
+    # Режим цикла пишется в БД до первого прогона: админка показывает его
+    # в блоке состояния. Без этого тестовый запуск (`--dry-run`) выглядит на
+    # экране как боевой, и «почему нет постов» ищется по логам.
+    _record_serve_mode(cfg, dry_run=dry_run, tick=tick)
 
     if cfg.settings.schedule_mode == "slots":
         # В режиме slots окна, суточный лимит и пауза не участвуют — сетка
