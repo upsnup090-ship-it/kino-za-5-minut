@@ -8,7 +8,7 @@ import logging
 from kino.choose import Choice
 from kino.config import Config
 from kino.constants import BUDGET_CEILING, BUDGET_MIN_USEFUL
-from kino.draft import DraftError, _post_chat
+from kino.draft import DraftError, _human_date, _post_chat
 from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
 from kino.prompts import judge_system, judge_user, format_spec
@@ -88,6 +88,10 @@ def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         source=item.source,
         title=item.title,
         snippet=item.snippet,
+        # Та же дата, что видит черновик. Без неё правило «сверь год с датой
+        # материала» невыполнимо: судье не с чем сравнивать, и он пропускает
+        # выдуманный год (боевой прогон 31.10.2026: «Variety, 2024»).
+        pub_date=_human_date(item, cfg.settings.timezone) or "(неизвестна)",
         format=choice.format,
         format_spec=format_spec(choice.format),
         draft=json.dumps(draft_data, ensure_ascii=False),
