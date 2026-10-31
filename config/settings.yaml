@@ -32,6 +32,11 @@ llm:
     temperature: 0.1
     # Та же защита: 4096 → 16384, затем фолбэк-модель (JUDGE_FALLBACK_MODEL).
     max_tokens: 4096
+    # deepseek-v4-flash — reasoning-модель: на judge_system.txt (11.5 КБ) она
+    # сожгла 5572 токена на размышления при max_tokens=4096 и вернула пустой
+    # content с finish_reason="length" (31.10). Судье рассуждения не нужны.
+    # OpenRouter: reasoning={"enabled": false}. Для других провайдеров — false.
+    disable_reasoning: true
   # Reasoning-модель тратила на reasoning до ~14k символов и отвечала медленно.
   # 60с было мало: тяжёлый черновик упирался в таймаут на второй попытке.
   # 120с даёт одной попытке закончить; общий бюджет всё равно режет deadline.

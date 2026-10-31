@@ -192,14 +192,21 @@ def _request_draft(
     finish_reason = choice0.get("finish_reason")
     message = choice0.get("message", {}) or {}
     content = str(message.get("content", "") or "")
-    reasoning = str(message.get("reasoning_content", "") or "")
+    # Провайдеры называют поле рассуждений по-разному: OpenRouter/DeepInfra —
+    # "reasoning", DeepSeek напрямую — "reasoning_content". Читаем оба, иначе
+    # счётчик в диагностике всегда 0 и причина провала определяется неверно
+    # (боевой кейс 31.10: reasoning=5572 токена, а код показывал 0 символов).
+    reasoning = str(
+        message.get("reasoning_content") or message.get("reasoning") or ""
+    )
     truncated = finish_reason == "length"
 
     if truncated and not content.strip():
-        # Модель израсходовала весь бюджет (reasoning-модель — на
-        # reasoning_content) и до JSON не дошла: content пустой, спасать нечего.
+        # Модель израсходовала весь бюджет и до JSON не дошла: content пустой,
+        # спасать нечего. Причина может быть и не в reasoning — сообщаем факты,
+        # а не догадку.
         return None, content, (
-            f"бюджет съеден reasoning (max_tokens={body.get('max_tokens')}, "
+            f"пустой content при finish_reason=length (max_tokens={body.get('max_tokens')}, "
             f"reasoning={len(reasoning)} символов)"
         ), True
 

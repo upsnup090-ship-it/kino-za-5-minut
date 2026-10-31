@@ -43,6 +43,11 @@ class Settings:
     draft_top_p: float = 0.9
     judge_temperature: float = 0.1
     judge_max_tokens: int = 1300
+    #: Выключает reasoning у модели судьи (OpenRouter: reasoning={"enabled": false}).
+    #: Reasoning-модели (deepseek-v4-flash и подобные) на длинном judge_system.txt
+    #: сжигают весь max_tokens на размышления и возвращают пустой content при
+    #: finish_reason="length". Судье рассуждения не нужны — он применяет чеклист.
+    judge_disable_reasoning: bool = False
     llm_timeout: float = 60.0
     wiki_timeout: float = 15.0
     wiki_user_agent: str = "KinoZa5Minut/1.0"
@@ -277,6 +282,7 @@ def load_config(env_file: str | None = None) -> Config:
         draft_top_p=float(llm.get("draft", {}).get("top_p", 0.9)),
         judge_temperature=float(llm.get("judge", {}).get("temperature", 0.1)),
         judge_max_tokens=int(llm.get("judge", {}).get("max_tokens", 1300)),
+        judge_disable_reasoning=bool(llm.get("judge", {}).get("disable_reasoning", False)),
         llm_timeout=float(llm.get("timeout_seconds", 60)),
         wiki_timeout=float(wiki.get("timeout_seconds", 15)),
         wiki_user_agent=str(wiki.get("user_agent", "KinoZa5Minut/1.0")),

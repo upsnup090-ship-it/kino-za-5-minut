@@ -103,6 +103,13 @@ def build_judge_prompt(choice: Choice, draft_data: dict, cfg: Config) -> dict:
         # APIMart отдаёт SSE по умолчанию даже без stream:true — явный false
         # нужен, чтобы получить обычный JSON и не упасть на response.json().
         "stream": False,
+        # Reasoning-модели на длинном judge_system.txt сжигают max_tokens на
+        # размышления и возвращают пустой content при finish_reason="length"
+        # (боевой кейс 31.10: deepseek-v4-flash, reasoning_tokens=5572 при
+        # max_tokens=4096, content=""). Судья применяет чеклист — рассуждения
+        # ему не нужны. OpenRouter понимает reasoning={"enabled": false};
+        # для других провайдеров флаг по умолчанию выключен.
+        **({"reasoning": {"enabled": False}} if cfg.settings.judge_disable_reasoning else {}),
     }
 
 
@@ -148,14 +155,20 @@ def _request_judge(
     finish_reason = choice0.get("finish_reason")
     message = choice0.get("message", {}) or {}
     content = str(message.get("content", "") or "")
-    reasoning = str(message.get("reasoning_content", "") or "")
+    # Провайдеры называют поле рассуждений по-разному: OpenRouter/DeepInfra —
+    # "reasoning", DeepSeek напрямую — "reasoning_content". Читаем оба, иначе
+    # счётчик в диагностике всегда 0 и причина провала определяется неверно
+    # (боевой кейс 31.10: reasoning_tokens=5572, а код показывал 0 символов).
+    reasoning = str(
+        message.get("reasoning_content") or message.get("reasoning") or ""
+    )
     truncated = finish_reason == "length"
 
     if truncated and not content.strip():
-        # Reasoning-модель съела бюджет и до JSON не дошла — спасать нечего,
-        # сообщаем причину, чтобы вызывающий повторил с большим лимитом.
+        # Модель израсходовала весь бюджет и до JSON не дошла — спасать нечего,
+        # сообщаем факты, чтобы вызывающий повторил с большим лимитом.
         return None, (
-            f"бюджет судьи съеден reasoning (max_tokens={body.get('max_tokens')}, "
+            f"пустой content при finish_reason=length (max_tokens={body.get('max_tokens')}, "
             f"reasoning={len(reasoning)} символов)"
         ), True
 

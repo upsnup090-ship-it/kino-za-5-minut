@@ -1,6 +1,7 @@
 """Тесты draft.py с моком HTTP — без реальных вызовов."""
 
 import json
+import time
 
 import pytest
 import requests
@@ -108,6 +109,9 @@ def test_draft_network_error_raises(monkeypatch):
         raise requests.ConnectionError("boom")
 
     monkeypatch.setattr(requests, "post", fake_post)
+    # Лестница бюджетов × ретраи = 9 пауз по 2/4/8с = 42с реального сна.
+    # Тест проверяет обработку ошибки, а не терпение: паузы подменяем.
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
     with pytest.raises(DraftError, match="соединения"):
         draft(_make_choice(), cfg)
 
