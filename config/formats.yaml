@@ -1,14 +1,14 @@
 # Веса форматов. Сумма не обязана быть 100 — выбор пропорциональный.
 weights:
-  facts: 8
-  news: 21
+  facts: 12
+  news: 8
   when: 16
-  poll: 7
-  quote: 6
+  poll: 10
+  quote: 10
   trailer: 5
   video: 5
   infographic: 4
-  collage: 5
+  collage: 10
   behind_scenes: 5
   interview: 5
   announcement: 5

@@ -126,22 +126,16 @@ def test_formats_routing_signals_are_known():
         assert not unknown, f"{fmt}: неизвестные требования {unknown}"
 
 
-def test_formats_weights_sum_110():
+def test_formats_weights_sum_113():
     cfg = _load("formats.yaml")
     total = sum(cfg["weights"].values())
-    assert total == 110, f"сумма весов {total}, ожидалось 110"
+    assert total == 113, f"сумма весов {total}, ожидалось 113"
 
 
-def test_facts_weight_reduced():
+def test_weights_s2_calibration():
+    """Калибровка S2 (§9.2), применена 31.10: news 55%→~24%. Канон весов."""
     cfg = _load("formats.yaml")
-    assert cfg["weights"]["facts"] == 8, f"facts={cfg['weights']['facts']}, ожидалось 8"
-
-
-def test_news_weight_increased():
-    cfg = _load("formats.yaml")
-    assert cfg["weights"]["news"] == 21, f"news={cfg['weights']['news']}, ожидалось 21"
-
-
-def test_when_weight_increased():
-    cfg = _load("formats.yaml")
-    assert cfg["weights"]["when"] == 16, f"when={cfg['weights']['when']}, ожидалось 16"
+    w = cfg["weights"]
+    expected = {"news": 8, "facts": 12, "poll": 10, "quote": 10, "collage": 10, "when": 16}
+    for fmt, value in expected.items():
+        assert w[fmt] == value, f"{fmt}={w[fmt]}, ожидалось {value}"
