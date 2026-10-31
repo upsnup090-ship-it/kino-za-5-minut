@@ -1,0 +1,23 @@
+[Unit]
+Description=Kino za 5 minut — admin bot (schedule management)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Отдельный процесс, а не поток внутри serve: падение админки не должно
+# тянуть публикации, и наоборот. Одна БД (data/kino.db), один лог —
+# SQLite держит несколько соединений, а serve не держит транзакций между тиками.
+Type=simple
+User=kino
+WorkingDirectory=/opt/kino/project
+EnvironmentFile=/opt/kino/project/.env
+ExecStart=/opt/kino/project/venv/bin/python -m kino admin
+Restart=always
+RestartSec=15
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

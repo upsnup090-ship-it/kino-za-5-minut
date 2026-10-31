@@ -20,6 +20,7 @@ from typing import Any
 from kino.config import Config
 from kino.logging_util import purge_old_logs
 from kino.pipeline import run
+from kino import notify
 from kino.schedule import (
     DayState,
     ScheduleConfig,
@@ -52,6 +53,9 @@ class Stopper:
     def request(self, *args: object) -> None:  # сигнатура signal handler
         self._stop = True
         logger.info("получен сигнал остановки, завершаю после текущего шага")
+        # systemd видит STOPPING и не считает долгую остановку зависанием:
+        # без этого TimeoutStopSec мог бы сработать раньше, чем доиграет пост.
+        notify.stopping("остановка после текущего шага")
 
     @property
     def stopping(self) -> bool:
@@ -251,11 +255,16 @@ def _serve_slots(
         tick,
         slot_cfg.catchup_minutes,
     )
+    notify.ready(f"режим slots, слотов {len(slots)}")
 
     while not stopper.stopping:
         iterations += 1
         now = datetime.now(slot_cfg.zone)
         wait: float = float(tick)
+        # Пинг watchdog в начале тика: systemd видит, что цикл живой, а не
+        # застрял в сетевом вызове. Если тик не дошёл до сюда за
+        # WatchdogSec — процесс перезапускается.
+        notify.watchdog()
 
         try:
             slots = _slot_rows(db)
@@ -385,11 +394,14 @@ def serve(cfg: Config, *, dry_run: bool = False, once: bool = False, tick_second
     logger.info("serve стартовал: %s, макс %d поста/сутки, тик %dс",
                 ", ".join(str(w) for w in schedule.windows),
                 schedule.max_posts_per_day, tick)
+    notify.ready(f"режим windows, окон {len(schedule.windows)}")
 
     iterations = 0
     while not stopper.stopping:
         iterations += 1
         now = datetime.now(schedule.zone)
+        # Пинг watchdog в начале тика — см. комментарий в _serve_slots.
+        notify.watchdog()
         state = load_state(cfg.state_path)
         day = state_day(state)
 

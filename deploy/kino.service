@@ -4,16 +4,22 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Type=notify: процесс сообщает READY=1, когда цикл готов. Нужен для watchdog.
+Type=notify
 User=kino
 WorkingDirectory=/opt/kino/project
 EnvironmentFile=/opt/kino/project/.env
 ExecStart=/opt/kino/project/venv/bin/python -m kino serve
 Restart=always
 RestartSec=30
-# Мягкая остановка: serve доигрывает текущий пост и выходит
+# Watchdog: serve пингует WATCHDOG=1 на каждом тике (tick_seconds=60).
+# 180с = три тика запаса: один пропущенный тик не повод для рестарта,
+# зависание в сетевом вызове — повод.
+WatchdogSec=180
+# Мягкая остановка: serve доигрывает текущий пост и выходит.
+# 300с — бюджет одного прогона (run.deadline_seconds) плюс запас.
 KillSignal=SIGTERM
-TimeoutStopSec=120
+TimeoutStopSec=300
 StandardOutput=journal
 StandardError=journal
 
