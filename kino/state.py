@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 class State:
     used_links: list[str] = field(default_factory=list)
     used_sigs: list[list[str]] = field(default_factory=list)
+    #: Хэши недавно опубликованных постов (sha256 от подписи+картинки+вариации).
+    #: Защищают от повторной публикации того же поста после рестарта: ссылка
+    #: могла ещё не попасть в used_links (падение между send и save_state),
+    #: но хэш уже записан.
+    recent_post_hashes: list[str] = field(default_factory=list)
     # --- новое для 24/7 ---
     #: Локальная дата (YYYY-MM-DD) последней публикации и счётчик постов за день.
     #: Переживают рестарт serve: после падения процесс не должен запостить лишнее.
@@ -143,6 +148,11 @@ def load_state(path: Path) -> State:
         links = []
     if not isinstance(sigs, list):
         sigs = []
+    # Старый state.json без recent_post_hashes грузится как пустой список —
+    # дедупликация постов начнёт работать с первого нового поста.
+    post_hashes = data.get("recent_post_hashes", [])
+    if not isinstance(post_hashes, list):
+        post_hashes = []
     # Новые поля дня читаются с дефолтами: старый state.json без них грузится
     # как «сегодня постов не было».
     day = data.get("day", "")
@@ -157,6 +167,7 @@ def load_state(path: Path) -> State:
     return State(
         used_links=[str(x) for x in links],
         used_sigs=[[str(y) for y in x] for x in sigs if isinstance(x, list)],
+        recent_post_hashes=[str(x) for x in post_hashes],
         day=day,
         posts_today=posts_today,
         last_post_at=last_post_at,
@@ -168,6 +179,7 @@ def save_state(path: Path, state: State, max_links: int, max_sigs: int) -> None:
     data = {
         "used_links": state.used_links[-max_links:],
         "used_sigs": state.used_sigs[-max_sigs:],
+        "recent_post_hashes": state.recent_post_hashes[-max_sigs:],
         "day": state.day,
         "posts_today": state.posts_today,
         "last_post_at": state.last_post_at,

@@ -285,10 +285,15 @@ def publish(
     extra_images: list[str] | None = None,
     poll_question: str = "",
     poll_options: list[str] | None = None,
+    seen_hashes: set[str] | None = None,
 ) -> bool:
     """Публикация выбранной вариацией: photo | link | gallery | text | poll.
 
     Порядок фолбэков: выбранная вариация → фото → текст → ЛС админу.
+
+    seen_hashes — хэши уже опубликованных постов (state.recent_post_hashes).
+    Повтор того же поста не отправляется: после падения между send и
+    save_state ссылка могла не попасть в used_links, а пост уже вышел.
     """
     if dry_run:
         logger.info("dry-run: публикация пропущена")
@@ -298,13 +303,10 @@ def publish(
         raise PublishError("CHANNEL_CHAT_ID не задан")
     chat = cfg.channel_chat_id
 
-    # Хэшируем содержимое поста для дедупликации
     post_hash = _hash_post_content(caption, image_url, kind, link_url)
-    logger.debug("post hash: %s", post_hash)
-    
-    # Проверяем, был ли такой пост уже опубликован (в будущем можно сохранять в state)
-    # Для простоты пока просто логируем хэш
-    logger.info("публикация поста с хэшем: %s", post_hash)
+    if seen_hashes is not None and post_hash in seen_hashes:
+        logger.warning("пост с таким хэшем уже публиковался (%s), пропускаем", post_hash[:12])
+        return False
 
     sent: bool | None = None
     if kind == "link" and link_url:

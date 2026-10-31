@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 import random
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -245,6 +246,18 @@ def _reject_run(cfg: Config, choice: Choice, state: State, reason: str, *, dry_r
         pass
 
 
+def _post_hash(caption: str, image_url: str, kind: str, link_url: str) -> str:
+    """Тот же хэш, что считает publish._hash_post_content.
+
+    Нужен в pipeline, чтобы записать хэш в state после успешной отправки.
+    Импортируем из publish, а не дублируем формулу — иначе два места
+    разъедутся и дедупликация перестанет совпадать.
+    """
+    from kino.publish import _hash_post_content
+
+    return _hash_post_content(caption, image_url, kind, link_url)
+
+
 def record_format_stat(cfg: Config, choice: Choice) -> None:
     """Дописывает строку в CSV статистики форматов. Ошибки записи не роняют пайплайн."""
     if not cfg.stats_path:
@@ -394,12 +407,15 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         end_time = datetime.now()
         judge_time = (end_time - start_time).total_seconds()
         
-        # Собираем статистику
+        # Собираем статистику качества (отдельный файл, не format_stats.csv).
         if "analysis" in final_data:
             analysis = final_data["analysis"]
             draft_metrics = analysis.get("draft_metrics", {})
             judge_feedback = analysis.get("judge_feedback", {})
-            
+
+            # Путь к папке логов — из конфига (STATS_PATH), а не хардкод.
+            stats_dir = cfg.stats_path.parent if cfg.stats_path else Path("logs")
+
             collect_format_stats(
                 choice.format,
                 choice.item.source,
@@ -407,16 +423,18 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 judge_feedback.get("quality_score", 0),
                 judge_feedback.get("is_sad", False),
                 draft_metrics,
-                judge_feedback
+                judge_feedback,
+                stats_dir=stats_dir,
             )
-            
+
             # Собираем статистику производительности судьи
             collect_judge_performance_stats(
                 judge_time,
                 judge_feedback.get("quality_score", 0),
                 judge_feedback.get("reasoning_length", 0),
                 0,  # prompt_tokens - не имеем доступа здесь
-                0   # completion_tokens - не имеем доступа здесь
+                0,  # completion_tokens - не имеем доступа здесь
+                stats_dir=stats_dir,
             )
 
         verdict = str(final_data.get("verdict", "accept"))
@@ -517,6 +535,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
         )
 
         if not dry_run:
+            post_hash = _post_hash(caption, image.url, kind, link_url)
             published = publish(
                 cfg,
                 caption,
@@ -527,6 +546,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 extra_images=extra_images if kind == "gallery" else None,
                 poll_question=poll_q if kind == "poll" else "",
                 poll_options=poll_opts if kind == "poll" else None,
+                seen_hashes=set(state.recent_post_hashes),
             )
             if published:
                 record_choice(
@@ -536,6 +556,13 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                     cfg.settings.state_max_links,
                     cfg.settings.state_max_signatures,
                 )
+                # Хэш поста — второй рубеж дедупликации: ссылка могла ещё не
+                # попасть в used_links, но пост уже вышел в канал.
+                if post_hash not in state.recent_post_hashes:
+                    state.recent_post_hashes.append(post_hash)
+                state.recent_post_hashes = state.recent_post_hashes[
+                    -cfg.settings.state_max_signatures:
+                ]
                 save_state(
                     cfg.state_path,
                     state,

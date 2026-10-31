@@ -368,6 +368,19 @@ def _fetch_one(
                 source.name, wait, attempt + 1, attempts,
             )
             time.sleep(wait)
+    # Ретраи исчерпаны. Если всё ещё 429 — последний рубеж: кэш последнего
+    # удачного снимка. Окно лимита Reddit держится около минуты, и без этого
+    # фид терялся бы целиком, хотя вчерашний снимок у нас есть.
+    if last[2] is not None and last[2].startswith("http error: 429"):
+        cached = _read_cache(cfg, source.name)
+        if cached is not None:
+            cname, citems, cerr = _parse_feed(source, cached, cfg)
+            if cerr is None and citems:
+                logger.info(
+                    "источник %s: 429 после ретраев, берём кэш (%d записей)",
+                    source.name, len(citems),
+                )
+                return cname, citems, None
     return last
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import random
 import re
@@ -189,17 +188,14 @@ def choose(
 
     base_pool = deduped if deduped else usable
 
-    # Добавляем дедупликацию по хэшам
-    def _hash_item(item: FeedItem) -> str:
-        key = f"{item.title}{item.snippet}{item.link}"
-        return hashlib.sha256(key.encode()).hexdigest()
-    
-    used_hashes = {_hash_item(item) for item in base_pool if item.link in used_links}
-    
+    # Дедупликация по ссылке и сигнатуре. Фильтр по хэшу здесь был мёртвым
+    # кодом: used_hashes строился только из элементов, уже отсеянных
+    # проверкой `item.link not in used_links`, поэтому вторая проверка
+    # никогда не срабатывала. Хэширование нужно в collect() — там оно
+    # отсеивает дубли внутри одного прогона.
     fresh = [
         item for item in base_pool
         if item.link not in used_links
-        and _hash_item(item) not in used_hashes
         and not any(_shared(_signature(item.title), sig) >= 2 for sig in used_sigs)
     ]
     candidates = fresh if fresh else base_pool

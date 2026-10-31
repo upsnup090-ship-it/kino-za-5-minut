@@ -9,3 +9,5 @@ data/*.lock
 data/*.txt
 data/*.bak*
 data/feed_cache/
+# Артефакты генерации фиксов (git format-patch и т.п.)
+*.patch
