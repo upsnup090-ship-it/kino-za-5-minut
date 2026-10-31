@@ -323,3 +323,25 @@ def judge(
         draft_data["verdict"] = "fallback"
         _notify_fallback(cfg, f"неожиданные данные судьи: {exc.__class__.__name__}")
         return draft_data
+
+
+def judge_with_analysis(cfg: Config, draft_data: dict, prompt: str = None) -> dict:
+    """Судья с анализом качества."""
+    # Сначала анализируем черновик
+    from kino.analyzer import analyze_draft_quality, evaluate_content_quality
+    
+    draft_metrics = analyze_draft_quality(draft_data)
+    
+    # Затем вызываем оригинальную функцию judge
+    # Используем правильный способ вызова judge
+    from kino.judge import judge as original_judge
+    original_result = original_judge(cfg, draft_data, prompt)
+    
+    # Добавляем анализ к результату
+    evaluation = evaluate_content_quality(draft_data, original_result)
+    
+    # Объединяем результаты
+    result = original_result.copy()
+    result["analysis"] = evaluation
+    
+    return result

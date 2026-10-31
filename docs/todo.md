@@ -329,3 +329,21 @@ quote 2/2), утечек нет, черновики не обрезались. �
     - `test_format_generation_integration` - тесты для всех форматов
     - `test_pipeline_error_handling` - обработка ошибок
     - `test_pipeline_with_empty_collection` - проверка пустой коллекции
+
+## Раунд 11: оптимизация качества контента (03.11)
+
+57. Создан анализатор качества контента: `kino/analyzer.py` с функциями
+    `analyze_draft_quality`, `analyze_judge_feedback`, `evaluate_content_quality`,
+    `generate_recommendations`. → ЗАКРЫТО.
+
+58. Добавлены функции сбора статистики: `kino/stats_collector.py` с 
+    `collect_format_stats`, `collect_judge_performance_stats`, `get_quality_report`.
+    → ЗАКРЫТО.
+
+59. Обновлён `kino/pipeline.py` для использования `judge_with_analysis` вместо
+    обычного `judge`, и добавлена сборка статистики по качеству. → ЗАКРЫТО.
+
+60. Созданы тесты для анализа качества: `tests/test_analyzer.py`. → ЗАКРЫТО.
+
+61. Тесты: все 517 тестов прошли, 1 новый файл в git. 
+    `test_analyzer.py` - 5 passed.

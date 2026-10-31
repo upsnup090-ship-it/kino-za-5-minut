@@ -17,9 +17,10 @@ from kino.deadline import Deadline, check
 from kino.draft import DraftError, draft
 from kino.horizon import HorizonResult, collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
-from kino.judge import judge
+from kino.judge import judge, judge_with_analysis
 from kino.publish import publish
 from kino.state import State, StateLock, load_state, record_choice, save_state
+from kino.stats_collector import collect_format_stats, collect_judge_performance_stats
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +388,36 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             return _abort(f"черновик не сгенерирован: {exc}")
         if not check(deadline, step="судья"):
             return _abort("бюджет исчерпан до судьи")
-        final_data = judge(choice, draft_data, cfg, deadline=deadline)
+        # Заменяем обычный judge на версию с анализом
+        start_time = datetime.now()
+        final_data = judge_with_analysis(cfg, draft_data)
+        end_time = datetime.now()
+        judge_time = (end_time - start_time).total_seconds()
+        
+        # Собираем статистику
+        if "analysis" in final_data:
+            analysis = final_data["analysis"]
+            draft_metrics = analysis.get("draft_metrics", {})
+            judge_feedback = analysis.get("judge_feedback", {})
+            
+            collect_format_stats(
+                choice.format,
+                choice.item.source,
+                judge_time,
+                judge_feedback.get("quality_score", 0),
+                judge_feedback.get("is_sad", False),
+                draft_metrics,
+                judge_feedback
+            )
+            
+            # Собираем статистику производительности судьи
+            collect_judge_performance_stats(
+                judge_time,
+                judge_feedback.get("quality_score", 0),
+                judge_feedback.get("reasoning_length", 0),
+                0,  # prompt_tokens - не имеем доступа здесь
+                0   # completion_tokens - не имеем доступа здесь
+            )
 
         verdict = str(final_data.get("verdict", "accept"))
         if verdict == "reject":
