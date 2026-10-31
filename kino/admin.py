@@ -27,10 +27,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from kino import posting
 from kino.config import Config
 from kino.schedule import SlotConfig, next_occurrence
 from kino.schedule_db import (
@@ -70,14 +72,51 @@ def _btn(text: str, data: str) -> dict[str, str]:
 # --- экраны ------------------------------------------------------------------
 
 
+def screen_home(cfg: Config) -> Reply:
+    """Главный экран бота: всё, что нужно каждый день, в четыре кнопки.
+
+    Публикация по расписанию — **одна** кнопка «📅 Публикации», а не меню:
+    под ней сетка, слоты и прогоны. Тестовый и финальный пост — отдельно и
+    сверху, потому что это то, что нажимают руками.
+    """
+    db = ScheduleDb(cfg.db_path)
+    enabled = db.list_slots(enabled_only=True)
+    mode = cfg.settings.schedule_mode
+    if mode == "slots":
+        state = f"режим: слоты, включено {len(enabled)}"
+        if not enabled:
+            state = "режим: слоты, но включённых слотов нет"
+    else:
+        windows = ", ".join(str(w) for w in cfg.settings.schedule_windows)
+        state = f"режим: окна {windows}"
+
+    available, total = _reserve_stats(cfg)
+    lines = [
+        "🎬 Кино за 5 минут",
+        state,
+        f"резерв: {available} из {total}",
+        "",
+        "Тестовый пост — в личку, канал и state не трогаются.",
+        "Финальный — в канал, как по расписанию.",
+    ]
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[
+            [_btn("🧪 Тестовый пост", "post:test")],
+            [_btn("🚀 Финальный пост", "post:final")],
+            [_btn("📅 Публикации", "schedule")],
+        ],
+    )
+
+
 def screen_schedule(cfg: Config, now: datetime | None = None) -> Reply:
-    """Главный экран: сетка по дням, каждый слот — кнопка."""
+    """Экран публикаций по расписанию: сетка по дням, каждый слот — кнопка."""
     db = ScheduleDb(cfg.db_path)
     slots = db.list_slots()
     if not slots:
         return Reply(
             text="📅 Расписание пусто.\nЗаполнить сеткой владельца (13 слотов)?",
-            keyboard=[[_btn("🌱 Заполнить сетку", "seed")]],
+            keyboard=[[_btn("🌱 Заполнить сетку", "seed"), _btn("◀️ Назад", "home")]],
         )
 
     lines = ["📅 Расписание публикаций", f"слотов: {len(slots)} "
@@ -101,6 +140,7 @@ def screen_schedule(cfg: Config, now: datetime | None = None) -> Reply:
         _btn("👁 Ближайшие 7 дней", "preview"),
         _btn("📜 Прогоны", "runs"),
     ])
+    keyboard.append([_btn("◀️ Назад", "home")])
     return Reply(text="\n".join(lines), keyboard=keyboard)
 
 
@@ -207,7 +247,10 @@ def screen_runs(cfg: Config) -> Reply:
     available, total = _reserve_stats(cfg)
     lines.append("")
     lines.append(f"Резерв: доступно {available} из {total}")
-    return Reply(text="\n".join(lines), keyboard=[[_btn("◀️ Назад", "schedule")]])
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[[_btn("◀️ Назад", "schedule"), _btn("🏠 Домой", "home")]],
+    )
 
 
 def _reserve_stats(cfg: Config) -> tuple[int, int]:
@@ -287,7 +330,9 @@ def handle_command(cfg: Config, text: str, now: datetime | None = None) -> Reply
     cmd = parts[0].split("@")[0].lower()
     args = parts[1:]
 
-    if cmd in ("/start", "/help"):
+    if cmd in ("/start", "/admin"):
+        return screen_home(cfg)
+    if cmd == "/help":
         return _help()
     if cmd == "/schedule":
         return screen_schedule(cfg, now)
@@ -299,17 +344,26 @@ def handle_command(cfg: Config, text: str, now: datetime | None = None) -> Reply
 
 
 def _help() -> Reply:
+    """Короткая справка. Постинг и расписание живут на кнопках главного экрана.
+
+    Каждая команда, которую принимает `handle_command`, названа здесь: справка,
+    которая молчит про работающую команду, — это баг, а не стиль. Тест
+    `test_command_unknown_shows_help` это и держит.
+    """
     return Reply(
         text=(
-            "Команды:\n"
-            "/schedule — расписание с кнопками\n"
-            "/slot add <день> <HH:MM>\n"
-            "/slot del <день> <HH:MM>\n"
-            "/slot on|off <день> <HH:MM>\n"
-            "/slot clear <день>\n"
-            "/next — ближайшие 7 дней"
+            "Всё на кнопках:\n"
+            "/start или /admin — главный экран\n"
+            "🧪 тестовый пост — в личку\n"
+            "🚀 финальный пост — в канал\n"
+            "📅 публикации — сетка, слоты, прогоны\n"
+            "\nКоманды:\n"
+            "/schedule — расписание (тот же экран, что кнопка 📅)\n"
+            "/next — ближайшие 7 дней\n"
+            "/slot add|del|on|off <день> <HH:MM>\n"
+            "/slot clear <день>"
         ),
-        keyboard=[[_btn("📅 Расписание", "schedule")]],
+        keyboard=[[_btn("◀️ Главный экран", "home")]],
     )
 
 
@@ -386,8 +440,12 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
     db = ScheduleDb(cfg.db_path)
     action, _, arg = (data or "").partition(":")
 
+    if action == "home":
+        return screen_home(cfg)
     if action == "schedule":
         return screen_schedule(cfg, now)
+    if action == "post":
+        return handle_post_button(cfg, arg, now)
     if action == "seed":
         db.seed_defaults()
         reply = screen_schedule(cfg, now)
@@ -436,6 +494,77 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
         return screen_slot(cfg, slot_id)
 
     return screen_schedule(cfg, now)
+
+
+# --- постинг по кнопке -------------------------------------------------------
+
+
+def handle_post_button(cfg: Config, mode: str, now: datetime | None = None) -> Reply:
+    """Кнопка постинга: `test` — в личку, `final` — в канал.
+
+    Прогон долгий (сбор + LLM + судья, до `deadline_seconds`), поэтому он
+    уходит в отдельный поток, а кнопка сразу отвечает «запущено». Бот не
+    замирает, Telegram не отдаёт таймаут, кнопка не залипает.
+
+    Второй тап во время прогона получает отказ: два поста в канал — это не
+    то, чего ждёт человек, нажавший кнопку дважды.
+    """
+    if mode not in ("test", "final"):
+        return screen_home(cfg)
+
+    if not posting.STATE.begin(mode):
+        return Reply(
+            text=(
+                f"⏳ Уже идёт прогон ({posting.STATE.mode}).\n"
+                "Дождись его — второй пост в канал не нужен."
+            ),
+            keyboard=[[_btn("🏠 Домой", "home")]],
+        )
+
+    where = "в личку" if mode == "test" else "в канал"
+    logger.info("постинг по кнопке: %s %s", mode, where)
+
+    def _worker() -> None:
+        from kino import tg_api
+
+        try:
+            if mode == "test":
+                prepared = posting.build_only(cfg)
+                head = posting.preview_text(prepared, to_channel=False)
+                tg_api.send_message(cfg, cfg.admin_chat_id, head)
+                if prepared.ok:
+                    ok = posting.deliver(cfg, prepared, cfg.admin_chat_id)
+                    if not ok:
+                        tg_api.send_message(
+                            cfg, cfg.admin_chat_id,
+                            "⚠️ Пост собран, но отправить не удалось — смотри лог.",
+                        )
+                else:
+                    tg_api.send_message(cfg, cfg.admin_chat_id, head)
+            else:
+                result = posting.publish_now(cfg)
+                tg_api.send_message(
+                    cfg, cfg.admin_chat_id,
+                    posting.describe_result(result, to_channel=True),
+                )
+        except Exception as exc:  # noqa: BLE001 — поток не должен умирать молча
+            logger.exception("постинг по кнопке упал: %s", exc)
+            try:
+                tg_api.send_message(
+                    cfg, cfg.admin_chat_id, f"❌ Прогон упал: {exc.__class__.__name__}"
+                )
+            except Exception:  # noqa: BLE001
+                logger.error("не удалось сообщить о падении прогона")
+        finally:
+            posting.STATE.end()
+
+    threading.Thread(target=_worker, name=f"post-{mode}", daemon=True).start()
+
+    if mode == "test":
+        text = "🧪 Запустил тестовый пост. Соберу и пришлю сюда же — в канал не пойдёт."
+    else:
+        text = "🚀 Запустил финальный пост. Уйдёт в канал, как по расписанию."
+    return Reply(text=text, keyboard=[[_btn("🏠 Домой", "home")]])
 
 
 # --- доступ ------------------------------------------------------------------
