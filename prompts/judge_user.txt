@@ -35,3 +35,13 @@ production, interview, opinion).
 
 Дата материала — единственный источник года для проверки. Если дата
 «(неизвестна)», год в fact_source и в тексте считается неподтверждённым.
+
+Чеклист перед ответом:
+- Год в fact_source и в text совпадает с датой материала? Расхождение
+  больше 12 месяцев — drop_fields: ["fact_source"], verdict = "accept".
+  Выдуманный fact_source при известной дате — verdict = "reject".
+- key_moment добавляет то, чего нет в text (число, дату, название, деталь)?
+  Пересказ первого абзаца — drop_fields: ["key_moment"].
+- Все блоки есть в спецификации формата? Лишний (например, question
+  в facts) — drop_fields.
+- quality, sad, reasoning заполнены? Они нужны при любом verdict.

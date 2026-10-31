@@ -154,3 +154,23 @@ def test_when_and_announcement_specs_ban_placeholders():
     for fmt in ("when", "announcement"):
         spec = prompts.format_spec(fmt)
         assert "не объявлена" in spec, fmt
+
+def test_judge_user_has_checklist():
+    """Чеклист в user-промпте дублирует правила 20-22 судьи.
+
+    system-промпт длинный (13 КБ), а user идёт последним — модель читает его
+    непосредственно перед ответом. Дубль там дешевле, чем пропущенный год.
+    """
+    text = prompts.judge_user(
+        source="Variety",
+        title="It: Welcome to Derry",
+        snippet="A surprise episode.",
+        pub_date="31 октября 2026",
+        format="facts",
+        format_spec="facts — один факт.",
+        draft='{"fact_source": "Variety, 2024"}',
+    )
+    assert "Чеклист перед ответом" in text
+    assert "дата материала" in text.lower()
+    assert "key_moment" in text
+    assert "спецификации формата" in text

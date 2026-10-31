@@ -120,3 +120,65 @@ def test_judge_prompt_date_matches_draft_prompt():
     judge_user = build_judge_prompt(_choice_with_ts(ts), {}, cfg)["messages"][1]["content"]
     assert "Дата материала: 1 ноября 2026" in draft_user
     assert "Дата материала: 1 ноября 2026" in judge_user
+
+
+# --- правила 20-22 в judge_system (шаг 3 раунда 16) ------------------------
+
+
+def test_judge_system_has_date_rule():
+    """Правило 20: сверка года с датой материала. Без него судья пропускает
+    «Variety, 2024» на новости от 31.10.2026 — сравнивать было не с чем."""
+    from kino.prompts import judge_system
+
+    text = judge_system()
+    assert "20." in text
+    assert "Дата материала" in text
+    assert "drop_fields: [\"fact_source\"]" in text
+    # Выдуманный fact_source при известной дате — reject, а не «необязательное поле».
+    assert "искажение факта" in text
+
+
+def test_judge_system_has_key_moment_rule():
+    """Правило 21: key_moment не пересказывает первый абзац."""
+    from kino.prompts import judge_system
+
+    text = judge_system()
+    assert "21." in text
+    assert "key_moment не пересказывает" in text
+    assert 'drop_fields: ["key_moment"]' in text
+
+
+def test_judge_system_has_extra_block_rule():
+    """Правило 22: блок вне спецификации формата снимается drop_fields."""
+    from kino.prompts import judge_system
+
+    text = judge_system()
+    assert "22." in text
+    assert "спецификации формата" in text
+    assert 'drop_fields: ["question"]' in text
+
+
+def test_judge_system_rules_are_numbered_without_gaps():
+    """Нумерация правил непрерывна: ссылки «правило N» в промптах не врут."""
+    import re
+
+    from kino.prompts import judge_system
+
+    nums = [int(m) for m in re.findall(r"^(\d+)\. ", judge_system(), re.MULTILINE)]
+    assert nums == list(range(1, len(nums) + 1)), f"дыра в нумерации: {nums}"
+
+
+def test_judge_system_within_token_budget():
+    """system-промпт судьи не распухает: модель должна успеть ответить.
+
+    31.10 deepseek-v4-flash сожгла 5572 токена на reasoning при
+    max_tokens=4096. Reasoning отключён, но промпт тоже должен оставаться
+    в разумных рамках — иначе упор в лимит вернётся с другой стороны.
+    """
+    from kino.prompts import judge_system
+
+    size = len(judge_system().encode("utf-8"))
+    assert size <= 16000, (
+        f"judge_system.txt распух до {size} Б (лимит 16000). "
+        "Проверь, не дублируют ли новые правила существующие."
+    )
