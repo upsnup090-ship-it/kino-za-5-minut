@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
 from kino.choose import Choice
+from kino.collect import FeedItem
 from kino.config import Config
 from kino.constants import BUDGET_CEILING, BUDGET_MIN_USEFUL
 from kino.deadline import Deadline
@@ -58,6 +61,42 @@ def format_budget(fmt: str, base: int) -> int:
     return _FORMAT_BUDGETS.get(fmt, base)
 
 
+#: Названия месяцев в родительном падеже: «31 октября 2026».
+#: Через strftime('%B') нельзя — в контейнере не настроена локаль, и модель
+#: получила бы «October». Список фиксированный, порядок — с января.
+_MONTHS_RU = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+
+def _human_date(item: FeedItem, tz: str) -> str:
+    """Дата материала по-русски для промпта: «31 октября 2026».
+
+    Пустая строка, если даты в фиде нет (`ts <= 0`) — врать модели нельзя,
+    иначе она подставит выдуманный год, как в прогоне 31.10.2026
+    («Материал Variety, 2024» на новости того же дня).
+
+    Берём `ts`, а не `pub_date`: `pub_date` — сырая RFC-822 строка, её формат
+    зависит от фида (horizon отдаёт пустую), а `ts` уже нормализован в UTC
+    в `collect._extract_ts` и одинаков для всех источников. Перевод в
+    локальную зону обязателен: новость от 23:30 UTC — это уже следующий день
+    по Москве, и в промпт должна уйти правильная дата.
+
+    Формат именно человеческий, не ISO: `2026-10-31` модель копирует в
+    подпись как есть, а «31 октября 2026» переписывает нормально.
+    """
+    if item.ts <= 0:
+        return ""
+    try:
+        moment = datetime.fromtimestamp(item.ts, tz=ZoneInfo(tz))
+    except (OSError, OverflowError, ValueError):
+        # Битая зона или невероятный ts — даты нет, но прогон не падает.
+        logger.warning("дата материала: не удалось разобрать ts=%r (tz=%s)", item.ts, tz)
+        return ""
+    return f"{moment.day} {_MONTHS_RU[moment.month - 1]} {moment.year}"
+
+
 def build_prompt(choice: Choice, cfg: Config) -> dict:
     """Собирает тело запроса к LLM для черновика."""
     item = choice.item
@@ -68,6 +107,9 @@ def build_prompt(choice: Choice, cfg: Config) -> dict:
         source=item.source,
         title=item.title,
         snippet=item.snippet,
+        # Дата материала или «(неизвестна)». Без неё модель не видит, когда
+        # новость вышла, и выдумывает год в fact_source.
+        pub_date=_human_date(item, cfg.settings.timezone) or "(неизвестна)",
     )
     return {
         "model": cfg.draft_model,

@@ -26,6 +26,7 @@ DEFAULT_DRAFT_USER = (
     "Формат: {format}\n"
     "Спецификация формата:\n{format_spec}\n"
     "Источник: {source}\n"
+    "Дата материала: {pub_date}\n"
     "Заголовок: {title}\n"
     "Описание: {snippet}\n"
     "Верни JSON: headline, text, question, film, director, cast, release, studio, wiki, "
@@ -42,6 +43,7 @@ DEFAULT_JUDGE_SYSTEM = (
 )
 DEFAULT_JUDGE_USER = (
     "Источник: {source}\n"
+    "Дата материала: {pub_date}\n"
     "Заголовок: {title}\n"
     "Описание: {snippet}\n"
     "Формат: {format}\n"

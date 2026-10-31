@@ -28,12 +28,14 @@ def test_draft_user_renders_placeholders():
         source="Variety",
         title="Dune Part Three",
         snippet="Denis Villeneuve confirms.",
+        pub_date="31 октября 2026",
     )
     assert "news" in text
     assert "Variety" in text
     assert "Dune Part Three" in text
     assert "Denis Villeneuve confirms." in text
     assert "news — оперативная новость." in text
+    assert "31 октября 2026" in text
     # плейсхолдеров не осталось
     assert "{" not in text
 
@@ -43,6 +45,7 @@ def test_judge_user_renders_placeholders():
         source="Deadline",
         title="Superman trailer",
         snippet="James Gunn unveils.",
+        pub_date="31 октября 2026",
         format="trailer",
         format_spec="trailer — новость о трейлере.",
         draft='{"headline": "x"}',
@@ -51,10 +54,12 @@ def test_judge_user_renders_placeholders():
     assert "Superman trailer" in text
     assert '{"headline": "x"}' in text
     assert "trailer — новость о трейлере." in text
+    assert "31 октября 2026" in text
     # плейсхолдеров не осталось (фигурные скобки в JSON черновика не считаются)
     assert "{source}" not in text
     assert "{title}" not in text
     assert "{draft}" not in text
+    assert "{pub_date}" not in text
 
 
 def test_format_spec_loads_existing_file():
