@@ -42,7 +42,7 @@ def _run_rejected(cfg: Config, *, dry_run: bool):
     with patch("kino.pipeline.collect") as mock_collect, \
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft") as mock_draft, \
-         patch("kino.pipeline.judge") as mock_judge, \
+         patch("kino.pipeline.judge_with_analysis") as mock_judge, \
          patch("kino.pipeline.save_state") as mock_save, \
          patch("kino.pipeline.StateLock") as mock_lock, \
          patch("kino.publish.notify_admin"):

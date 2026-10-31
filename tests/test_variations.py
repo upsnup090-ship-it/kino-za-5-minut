@@ -248,7 +248,7 @@ def test_run_does_not_publish_rejected_draft(tmp_path):
     with patch("kino.pipeline.collect") as mock_collect, \
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft") as mock_draft, \
-         patch("kino.pipeline.judge") as mock_judge, \
+         patch("kino.pipeline.judge_with_analysis") as mock_judge, \
          patch("kino.pipeline.publish") as mock_publish, \
          patch("kino.pipeline.StateLock") as mock_lock, \
          patch("kino.pipeline.save_state") as mock_save, \

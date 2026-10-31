@@ -17,7 +17,7 @@ from kino.deadline import Deadline, check
 from kino.draft import DraftError, draft
 from kino.horizon import HorizonResult, collect_horizon
 from kino.image import ImageResult, find_image_multi, find_images
-from kino.judge import judge, judge_with_analysis
+from kino.judge import judge_with_analysis
 from kino.publish import publish
 from kino.state import State, StateLock, load_state, record_choice, save_state
 from kino.stats_collector import collect_format_stats, collect_judge_performance_stats
@@ -390,7 +390,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             return _abort("бюджет исчерпан до судьи")
         # Заменяем обычный judge на версию с анализом
         start_time = datetime.now()
-        final_data = judge_with_analysis(cfg, draft_data)
+        final_data = judge_with_analysis(choice, draft_data, cfg, deadline=deadline)
         end_time = datetime.now()
         judge_time = (end_time - start_time).total_seconds()
         

@@ -47,9 +47,9 @@ def test_pipeline_runs_with_mocked_components():
     )
     
     # Мокаем все компоненты
-    with patch('kino.collect.collect') as mock_collect, \
-         patch('kino.draft.draft') as mock_draft, \
-         patch('kino.judge.judge') as mock_judge, \
+    with patch('kino.pipeline.collect') as mock_collect, \
+         patch('kino.pipeline.draft') as mock_draft, \
+         patch('kino.pipeline.judge_with_analysis') as mock_judge, \
          patch('kino.pipeline.save_state') as mock_save_state:
         
         # Настройка моков
@@ -112,9 +112,9 @@ def test_pipeline_with_different_weights():
         video_url=""
     )
     
-    with patch('kino.collect.collect') as mock_collect, \
-         patch('kino.draft.draft') as mock_draft, \
-         patch('kino.judge.judge') as mock_judge:
+    with patch('kino.pipeline.collect') as mock_collect, \
+         patch('kino.pipeline.draft') as mock_draft, \
+         patch('kino.pipeline.judge_with_analysis') as mock_judge:
         
         mock_collect.return_value = type('CollectResult', (), {
             'items': [item],
