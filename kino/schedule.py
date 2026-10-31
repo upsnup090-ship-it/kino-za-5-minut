@@ -455,8 +455,17 @@ class SlotOccurrence:
 
     @property
     def when(self) -> datetime:
-        """Момент слота в локальной зоне (aware)."""
-        return datetime.fromisoformat(self.slot_at)
+        """Момент слота в локальной зоне (aware).
+
+        `slot_at` хранится без таймзоны — это ключ в `runs`. Но `when`
+        обязан быть aware: смешивание naive и aware давало `TypeError` в
+        `lateness_minutes` (шаг 8) и в превью админки (шаг 10). Один раз
+        правильно здесь — и ни один вызывающий не должен об этом думать.
+        """
+        moment = datetime.fromisoformat(self.slot_at)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=ZoneInfo(DEFAULT_TIMEZONE))
+        return moment
 
 
 def _parse_hhmm(value: str) -> tuple[int, int]:

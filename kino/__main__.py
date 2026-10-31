@@ -127,6 +127,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     runs_parser = sched_sub.add_parser("runs", help="последние записи журнала прогонов")
     runs_parser.add_argument("--limit", type=int, default=20, help="сколько записей (20)")
+
+    admin_parser = sub.add_parser("admin", help="админка расписания в личке бота")
+    admin_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="один опрос обновлений и выход (для отладки)",
+    )
+    admin_parser.add_argument(
+        "--screen",
+        choices=["schedule", "preview", "runs"],
+        default=None,
+        help="напечатать экран в консоль, не трогая Telegram",
+    )
     return parser
 
 
@@ -298,6 +311,38 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_admin(args: argparse.Namespace) -> int:
+    """admin: инлайн-админка расписания.
+
+    `--screen` печатает экран в консоль — это отладка без Telegram, она не
+    требует токена и не шлёт ни одного запроса.
+    """
+    try:
+        cfg = load_config()
+    except ConfigError as exc:
+        logger.error("ошибка конфигурации: %s", exc)
+        return 1
+    setup_logging(cfg)
+
+    from kino.admin import run, screen_preview, screen_runs, screen_schedule
+
+    if args.screen:
+        if args.screen == "preview":
+            reply = screen_preview(cfg)
+        elif args.screen == "runs":
+            reply = screen_runs(cfg)
+        else:
+            reply = screen_schedule(cfg)
+        print(reply.text)
+        if reply.keyboard:
+            print("\n[кнопки]")
+            for row in reply.keyboard:
+                print("  " + " | ".join(b["text"] for b in row))
+        return 0
+
+    return run(cfg, once=args.once)
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     parser = build_parser()
@@ -311,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     if args.command == "schedule":
         return _cmd_schedule(args)
+    if args.command == "admin":
+        return _cmd_admin(args)
 
     parser.print_help()
     return 1
