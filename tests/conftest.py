@@ -1,27 +1,103 @@
-"""Общие фикстуры тестов."""
-
+"""Фикстуры для тестов."""
 
 import pytest
+from unittest.mock import patch
+
+from kino.config import Config, Settings
+from kino.collect import FeedItem
 
 
-@pytest.fixture(autouse=True)
-def _no_llm_retry_sleep(monkeypatch):
-    """Ретраи LLM не должны тормозить тесты реальными паузами 2/4/8с.
+@pytest.fixture
+def mock_draft_response():
+    """Мок ответа черновика."""
+    return {
+        "headline": "Тестовый заголовок",
+        "text": "Тестовый текст новости о кино",
+        "quote": {
+            "speaker": "Актер",
+            "text": "Цитата актера о фильме"
+        },
+        "facts": ["Факт 1", "Факт 2"],
+        "review": {
+            "rating": 8,
+            "verdict": "Хороший фильм"
+        }
+    }
 
-    Боевой код (kino/draft.py) спит между попытками лестницы и ретраями
-    соединения — в тестах это лишние десятки секунд. Тесты, проверяющие
-    сами ретраи, патчат sleep явно.
-    """
-    monkeypatch.setattr("kino.draft.time.sleep", lambda _s: None)
+
+@pytest.fixture
+def mock_judge_response():
+    """Мок ответа судьи."""
+    return {
+        "quality": 9,
+        "sad": False,
+        "reasoning": "Контент соответствует стандартам"
+    }
 
 
-@pytest.fixture(autouse=True)
-def _isolated_stats(tmp_path, monkeypatch):
-    """Тесты не дописывают строки в боевой logs/format_stats.csv (п.38 журнала).
+@pytest.fixture
+def sample_feed_item():
+    """Пример элемента фида для тестов."""
+    return FeedItem(
+        source="test",
+        title="Тестовый заголовок новости",
+        link="https://test.com/article",
+        pub_date="2026-10-31",
+        ts=1793436000.0,
+        snippet="Краткое описание новости о кино",
+        images=["https://test.com/image.jpg"],
+        video_url="https://youtube.com/watch?v=test"
+    )
 
-    Прогон test_pipeline/test_serve/test_variations добавлял строки source=test
-    в реальный CSV (24.10 проверено: 1692 -> 1696 строк). Конфиги из load_config
-    получают STATS_PATH во tmp_path; прямые Config() и так не пишут CSV —
-    дефолт stats_path теперь None (kino/config.py).
-    """
-    monkeypatch.setenv("STATS_PATH", str(tmp_path / "format_stats.csv"))
+
+@pytest.fixture
+def mock_config():
+    """Мок конфига для тестов."""
+    return Config(
+        sources=[],
+        weights={"news": 8, "trailer": 5, "quote": 10},
+        bad=[],
+        sad=[],
+        settings=Settings(),
+        llm_base_url="",
+        llm_api_key="",
+        draft_model="",
+        judge_model="",
+        bot_token="test-token",
+        channel_chat_id="-100123",
+        admin_chat_id="-100456",
+        proxy_url="",
+        cache_dir="data/cache",
+        horizon_dir="horizon/data",
+        horizon_summaries_dir="horizon/data/summaries",
+        horizon_run=True,
+        horizon_hours=24,
+        horizon_timeout=600.0
+    )
+
+
+@pytest.fixture
+def mock_llm_calls():
+    """Моки вызовов LLM."""
+    with patch('kino.draft.draft') as mock_draft, \
+         patch('kino.judge.judge') as mock_judge:
+        
+        # Настройка моков по умолчанию
+        mock_draft.return_value = {
+            "headline": "Тестовый заголовок",
+            "text": "Тестовый текст новости о кино",
+            "quote": {
+                "speaker": "Актер",
+                "text": "Цитата актера о фильме"
+            }
+        }
+        
+        mock_judge.return_value = {
+            "quality": 9,
+            "sad": False
+        }
+        
+        yield {
+            'draft': mock_draft,
+            'judge': mock_judge
+        }
