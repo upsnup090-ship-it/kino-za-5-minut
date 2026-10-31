@@ -97,6 +97,36 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="как часто проверять расписание (секунды), иначе из конфига",
     )
+
+    sched_parser = sub.add_parser(
+        "schedule", help="расписание по слотам: seed, list, add, del, on, off, clear, runs"
+    )
+    sched_sub = sched_parser.add_subparsers(dest="schedule_action", required=True)
+
+    sched_sub.add_parser("seed", help="заполнить сетку владельца (13 слотов)")
+    sched_sub.add_parser("list", help="показать слоты по дням")
+
+    add_parser = sched_sub.add_parser("add", help="добавить слот")
+    add_parser.add_argument("weekday", help="день: 0-6 или пн..вс")
+    add_parser.add_argument("time", help="время HH:MM")
+
+    del_parser = sched_sub.add_parser("del", help="удалить слот")
+    del_parser.add_argument("weekday", help="день: 0-6 или пн..вс")
+    del_parser.add_argument("time", help="время HH:MM")
+
+    on_parser = sched_sub.add_parser("on", help="включить слот")
+    on_parser.add_argument("weekday", help="день: 0-6 или пн..вс")
+    on_parser.add_argument("time", help="время HH:MM")
+
+    off_parser = sched_sub.add_parser("off", help="выключить слот")
+    off_parser.add_argument("weekday", help="день: 0-6 или пн..вс")
+    off_parser.add_argument("time", help="время HH:MM")
+
+    clear_parser = sched_sub.add_parser("clear", help="убрать все слоты дня")
+    clear_parser.add_argument("weekday", help="день: 0-6 или пн..вс")
+
+    runs_parser = sched_sub.add_parser("runs", help="последние записи журнала прогонов")
+    runs_parser.add_argument("--limit", type=int, default=20, help="сколько записей (20)")
     return parser
 
 
@@ -193,6 +223,81 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_schedule(args: argparse.Namespace) -> int:
+    """schedule: управление слотами в data/kino.db.
+
+    Команды быстрые и не запускают пайплайн: seed/list/add/del/on/off/clear/runs.
+    Путь к БД — cfg.db_path (env KINO_DB_PATH перекрывает settings.yaml), чтобы
+    тесты и отладка не писали в боевой файл.
+    """
+    from kino.schedule_db import ScheduleDb, ScheduleDbError, format_week
+
+    try:
+        cfg = load_config()
+    except ConfigError as exc:
+        logger.error("ошибка конфигурации: %s", exc)
+        return 1
+
+    db = ScheduleDb(cfg.db_path)
+    action = args.schedule_action
+
+    try:
+        if action == "seed":
+            added = db.seed_defaults()
+            total = db.count_slots()
+            print(f"seed: добавлено {added}, всего слотов {total}")
+            print(format_week(db.list_slots()))
+            return 0
+
+        if action == "list":
+            slots = db.list_slots()
+            if not slots:
+                print("слотов нет. Запусти: python -m kino schedule seed")
+                return 0
+            print(f"слотов {len(slots)} (включено {sum(1 for s in slots if s.enabled)}):")
+            print(format_week(slots))
+            return 0
+
+        if action == "add":
+            slot = db.add_slot(args.weekday, args.time)
+            print(f"добавлен слот: {slot}")
+            return 0
+
+        if action == "del":
+            if db.delete_slot(args.weekday, args.time):
+                print("слот удалён")
+                return 0
+            print("такого слота нет")
+            return 1
+
+        if action in ("on", "off"):
+            slot = db.set_enabled(args.weekday, args.time, action == "on")
+            print(f"слот {slot.weekday_name} {slot.time}: {'включён' if slot.enabled else 'выключен'}")
+            return 0
+
+        if action == "clear":
+            count = db.clear_weekday(args.weekday)
+            print(f"удалено слотов: {count}")
+            return 0
+
+        if action == "runs":
+            records = db.recent_runs(limit=args.limit)
+            if not records:
+                print("журнал прогонов пуст")
+                return 0
+            for rec in records:
+                stamp = rec.started_at[:16].replace("T", " ")
+                tail = f" — {rec.reason}" if rec.reason else ""
+                print(f"{stamp}  {rec.outcome:<9}  {rec.slot_at[:16]}{tail}")
+            return 0
+    except ScheduleDbError as exc:
+        logger.error("расписание: %s", exc)
+        return 1
+
+    print(f"неизвестное действие schedule: {action}")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     parser = build_parser()
@@ -204,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_draft(args)
     if args.command == "serve":
         return _cmd_serve(args)
+    if args.command == "schedule":
+        return _cmd_schedule(args)
 
     parser.print_help()
     return 1

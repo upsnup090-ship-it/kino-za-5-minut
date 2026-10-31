@@ -23,6 +23,14 @@ class PublishError(Exception):
 
 
 def _api_url(token: str, method: str) -> str:
+    """URL метода Bot API. Без токена — понятная ошибка, а не /bot/method → 404.
+
+    Токен обязателен только на пути публикации: `kino schedule`, `kino draft`
+    и dry-run работают без него (иначе правка расписания требовала бы боевых
+    секретов на машине, где публикации нет).
+    """
+    if not token:
+        raise PublishError("BOT_TOKEN не задан: публикация в Telegram невозможна")
     return f"{API_BASE}/bot{token}/{method}"
 
 

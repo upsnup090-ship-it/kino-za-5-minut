@@ -66,6 +66,19 @@ class Settings:
     min_gap_minutes: int = 45
     timezone: str = "Europe/Moscow"
     tick_seconds: int = 60
+    # --- режим расписания: окна или слоты (шаг 8) ---
+    # windows — старое поведение целиком, slots — сетка из БД. Переключение
+    # одной строкой в settings.yaml, код окон не удаляется (откат).
+    schedule_mode: str = "windows"
+    #: Слот считается наступившим в [slot, slot + catchup_minutes).
+    schedule_catchup_minutes: int = 30
+    #: Публикация позже slot + late_grace_minutes — с пометкой опоздания.
+    schedule_late_grace_minutes: int = 20
+    #: Резерв: сколько постов держим и сколько часов они живут.
+    reserve_max_items: int = 5
+    reserve_ttl_hours: int = 48
+    #: Хранение журнала прогонов в днях.
+    schedule_retention_days: int = 90
     # --- логи ---
     log_level: str = "INFO"
     log_file: str = "logs/kino.log"
@@ -96,6 +109,9 @@ class Config:
     proxy_url: str | None = None
     llm_proxy_url: str | None = None
     state_path: Path = ROOT / "data" / "state.json"
+    # БД расписания (слоты, резерв, журнал прогонов). Отдельный файл от
+    # state.json: там контент, здесь расписание.
+    db_path: Path = ROOT / "data" / "kino.db"
     # None = CSV-статистика не пишется (п.38 журнала: прямые Config() в тестах и
     # скриптах не должны дописывать строки в боевой logs/format_stats.csv).
     # Бой всегда получает явный путь из load_config (env STATS_PATH).
@@ -300,6 +316,12 @@ def load_config(env_file: str | None = None) -> Config:
         min_gap_minutes=int(schedule.get("min_gap_minutes", 45)),
         timezone=str(schedule.get("timezone", "Europe/Moscow")),
         tick_seconds=max(1, int(schedule.get("tick_seconds", 60))),
+        schedule_mode=str(schedule.get("mode", "windows")).strip().lower(),
+        schedule_catchup_minutes=int(schedule.get("catchup_minutes", 30)),
+        schedule_late_grace_minutes=int(schedule.get("late_grace_minutes", 20)),
+        reserve_max_items=int(schedule.get("reserve_max_items", 5)),
+        reserve_ttl_hours=int(schedule.get("reserve_ttl_hours", 48)),
+        schedule_retention_days=int(schedule.get("retention_days", 90)),
         log_level=str(logging_cfg.get("level", "INFO")),
         log_file=str(logging_cfg.get("file", "logs/kino.log")),
         log_max_bytes=int(logging_cfg.get("max_bytes", 5 * 1024 * 1024)),
@@ -330,9 +352,36 @@ def load_config(env_file: str | None = None) -> Config:
         except Exception as exc:  # noqa: BLE001 — любая ошибка расписания → ConfigError
             raise ConfigError(f"неверное расписание в settings.yaml: {exc}") from exc
 
+    # Валидация режима расписания: опечатка в mode не должна молча
+    # превращаться в windows (иначе правка «slots» с ошибкой = старые окна).
+    if settings.schedule_mode not in ("windows", "slots"):
+        raise ConfigError(
+            f"schedule.mode={settings.schedule_mode!r}: допустимо 'windows' или 'slots'"
+        )
+    if settings.schedule_catchup_minutes <= 0:
+        raise ConfigError(
+            f"schedule.catchup_minutes={settings.schedule_catchup_minutes}, нужно > 0"
+        )
+    if settings.schedule_late_grace_minutes < 0:
+        raise ConfigError(
+            f"schedule.late_grace_minutes={settings.schedule_late_grace_minutes}, нужно >= 0"
+        )
+    if settings.reserve_max_items <= 0:
+        raise ConfigError(f"schedule.reserve_max_items={settings.reserve_max_items}, нужно > 0")
+    if settings.reserve_ttl_hours <= 0:
+        raise ConfigError(f"schedule.reserve_ttl_hours={settings.reserve_ttl_hours}, нужно > 0")
+    if settings.schedule_retention_days <= 0:
+        raise ConfigError(
+            f"schedule.retention_days={settings.schedule_retention_days}, нужно > 0"
+        )
+
     state_path = Path(os.getenv("STATE_PATH", "data/state.json"))
     if not state_path.is_absolute():
         state_path = ROOT / state_path
+
+    db_path = Path(os.getenv("KINO_DB_PATH", "data/kino.db"))
+    if not db_path.is_absolute():
+        db_path = ROOT / db_path
 
     stats_path = Path(os.getenv("STATS_PATH", "logs/format_stats.csv"))
     if not stats_path.is_absolute():
@@ -399,12 +448,13 @@ def load_config(env_file: str | None = None) -> Config:
         draft_model=draft_model,
         judge_model=judge_model,
         judge_fallback_model=judge_fallback_model,
-        bot_token=_require_env("BOT_TOKEN"),
+        bot_token=_optional_env("BOT_TOKEN"),
         channel_chat_id=_optional_env("CHANNEL_CHAT_ID"),
         admin_chat_id=_optional_env("ADMIN_CHAT_ID"),
         proxy_url=_optional_env("PROXY_URL") or None,
         llm_proxy_url=_resolve_llm_proxy(),
         state_path=state_path,
+        db_path=db_path,
         stats_path=stats_path,
         cache_dir=cache_dir,
         source_mode=source_mode,

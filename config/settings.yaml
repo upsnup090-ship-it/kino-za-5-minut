@@ -136,6 +136,19 @@ schedule:
   timezone: "Europe/Moscow"
   # Как часто serve проверяет расписание (секунды).
   tick_seconds: 60
+  # Режим: windows — старые окна выше, slots — сетка день-время из data/kino.db
+  # (13 слотов владельца). Переключение — этой строкой, откат тоже.
+  mode: windows
+  # Слот считается наступившим в [slot, slot + catchup_minutes). Тик 60 с и
+  # время 11:05 без этого окна теряют слот до следующей недели.
+  catchup_minutes: 30
+  # Публикация позже slot + late_grace_minutes уходит, но с пометкой опоздания.
+  late_grace_minutes: 20
+  # Резерв: сколько постов держим и сколько часов они живут.
+  reserve_max_items: 5
+  reserve_ttl_hours: 48
+  # Хранение журнала прогонов (таблица runs), дней.
+  retention_days: 90
 
 logging:
   level: INFO              # DEBUG для отладки без правки кода
