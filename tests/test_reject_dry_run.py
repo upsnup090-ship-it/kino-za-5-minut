@@ -42,7 +42,7 @@ def _run_rejected(cfg: Config, *, dry_run: bool):
     with patch("kino.pipeline.collect") as mock_collect, \
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft") as mock_draft, \
-         patch("kino.pipeline.judge") as mock_judge, \
+         patch("kino.pipeline.judge_with_analysis") as mock_judge, \
          patch("kino.pipeline.save_state") as mock_save, \
          patch("kino.pipeline.StateLock") as mock_lock, \
          patch("kino.publish.notify_admin"):
@@ -50,7 +50,7 @@ def _run_rejected(cfg: Config, *, dry_run: bool):
         mock_collect.return_value = SimpleNamespace(items=[item], broken=[], total=1, fresh_count=1)
         mock_choose.return_value = Choice(item=item, format="news", quality_score=5, sad_topic=False)
         mock_draft.return_value = {"headline": "H", "text": "T"}
-        mock_judge.return_value = {"headline": "H", "text": "T", "verdict": "reject", "reason": "нет"}
+        mock_judge.return_value = {"headline": "H", "text": "T", "verdict": "reject", "reason": "нет", "analysis": {"judge_feedback": {}}}
         result = run(cfg, dry_run=dry_run)
     return result, mock_save
 

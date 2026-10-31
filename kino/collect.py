@@ -18,7 +18,6 @@ from pathlib import Path
 
 import feedparser
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from kino.config import Config, Source
 
@@ -222,8 +221,8 @@ def _extract_ts(entry: dict) -> float:
     return 0.0
 
 
-def _fetch_once(source: Source, cfg: Config, *, deadline: Deadline | None = None) -> tuple[str, list[FeedItem] | None, str | None]:
-    """Запрос к источнику с повторами при сетевых ошибках и лимитах."""
+def _fetch_raw(source: Source, cfg: Config, *, deadline: Deadline | None = None) -> tuple[str, list[FeedItem] | None, str | None]:
+    """Один запрос к источнику, без повторов. Ретраи — в _fetch_one."""
     try:
         timeout = cfg.settings.collect_timeout
         if deadline is not None:
@@ -247,12 +246,6 @@ def _fetch_once(source: Source, cfg: Config, *, deadline: Deadline | None = None
         return source.name, None, f"request error: {exc.__class__.__name__}"
     except Exception as exc:  # noqa: BLE001 — ловим всё, чтобы не уронить сбор
         return source.name, None, f"unexpected error: {exc.__class__.__name__}"
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def _fetch_once_with_retry(source: Source, cfg: Config, *, deadline: Deadline | None = None) -> tuple[str, list[FeedItem] | None, str | None]:
-    """Запрос к источнику с повторами при сетевых ошибках и лимитах."""
-    return _fetch_once(source, cfg, deadline=deadline)
 
 
 def _parse_feed(source: Source, payload: bytes, cfg: Config) -> tuple[str, list[FeedItem] | None, str | None]:
@@ -303,7 +296,7 @@ def _fetch_cached(
     с кэшем они отдают вчерашний (или утренний) снимок, а свежий подтянется
     в следующий прогон.
     """
-    name, items, error = _fetch_once(source, cfg, deadline=deadline)
+    name, items, error = _fetch_one(source, cfg, deadline=deadline)
     if error is None:
         return name, items, error
     if error.startswith("http error: 429"):
@@ -343,8 +336,7 @@ def _fetch_one(
         if deadline is not None and deadline.expired:
             logger.info("источник %s: дедлайн исчерпан, останавливаемся", source.name)
             break
-        # Используем ретраи для повторных попыток
-        last = _fetch_once_with_retry(source, cfg, deadline=deadline)
+        last = _fetch_raw(source, cfg, deadline=deadline)
         error = last[2]
         if error is None:
             return last
@@ -411,7 +403,7 @@ def _collect_reddit(
                     break
             if wait > 0:
                 time.sleep(wait)
-        results.append(_fetch_one(source, cfg, deadline=deadline))
+        results.append(_fetch_cached(source, cfg, deadline=deadline))
     return results
 
 
@@ -426,7 +418,7 @@ def collect(cfg: Config, *, deadline: Deadline | None = None) -> CollectResult:
     fetched: list[tuple[str, list[FeedItem] | None, str | None]] = []
     with ThreadPoolExecutor(max_workers=cfg.settings.max_workers) as executor:
         futures = {
-            executor.submit(_fetch_one, source, cfg, deadline=deadline): source
+            executor.submit(_fetch_cached, source, cfg, deadline=deadline): source
             for source in other_sources
         }
         for future in as_completed(futures):
