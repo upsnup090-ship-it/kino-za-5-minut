@@ -235,3 +235,22 @@ quote 2/2), утечек нет, черновики не обрезались. �
     фидов» про Reddit (урезан до двух, пункт 25); README — «Пункты 1–25
     закрыты» (закрыты 1–34, открыты 35–36). → ЗАКРЫТО (этот коммит):
     тексты синхронизированы с кодом.
+
+## Раунд 7: закрытие открытых пунктов аудита (26.10, «ок» владельца)
+
+40. python-telegram-bot==21.9 в requirements.txt не используется. Проверено
+    26.10: ни одного импорта telegram в kino/, scripts/, tests/, deploy/;
+    упоминаний пакета в README/docs/deploy нет; Telegram-вызовы идут через
+    requests. → ЗАКРЫТО (этот коммит): строка удалена из requirements.txt.
+41. Корневой .env.example — устаревшая копия docs/env.example (отличается
+    парой строк комментариев, docs-версия новее). После #37 Makefile и
+    README указывают на docs/env.example. → ЗАКРЫТО (26.10): файл удалён
+    из песочницы (в git не входил, .env* в .gitignore).
+42. Дубль venv/ + .venv/: оба Python 3.12.3; .venv/ имел те же пакеты плюс
+    cffi/cryptography/pycparser (ничто из requirements их не требует).
+    Makefile (PYTHON ?= venv/bin/python) и deploy/README используют venv/.
+    → ЗАКРЫТО (26.10): .venv/ удалён, venv/ канонический.
+43. JUDGE_FALLBACK_MODEL не задан в .env: при флапе apimart судья без второй
+    модели сразу ставит fallback (повтор той же модели). → ЗАКРЫТО (26.10):
+    задан =glm-5.3-flash (значение из комментария docs/env.example, дешёвая
+    draft-модель).
