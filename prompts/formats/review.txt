@@ -18,6 +18,7 @@
 ЗАПРЕЩЕНО:
 - Выдумывать rating.
 - Спойлеры.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, image_candidates, announcement, comparison, riddle, fact_source, news, quote, trailer, video, collage, production, interview, opinion.
 
 ПОЛЯ:
 - review: {verdict, rating, pros, cons, criteria: [{name, score}], audience, similar_to}

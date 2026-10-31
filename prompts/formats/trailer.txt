@@ -15,6 +15,7 @@
 ЗАПРЕЩЕНО:
 - Выдумывать пасхалки, не видимые в источнике.
 - «Посмотри трейлер на YouTube» вместо URL.
+- Блоки, которых нет в этом формате: question, poll_options, infographic, image_candidates, announcement, review, comparison, riddle, fact_source, news, quote, video, collage, production, interview, opinion.
 
 ПОЛЯ:
 - trailer: {highlights: [str], release_window: str}

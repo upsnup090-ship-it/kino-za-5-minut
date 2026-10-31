@@ -19,6 +19,7 @@
 - Заглушки вместо значения («не объявлена», «неизвестно», «н/д»): если даты или
   платформы нет в источнике — пустая строка, а не текст об их отсутствии.
 - Сухое перечисление без контекста.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, image_candidates, review, comparison, riddle, fact_source, news, quote, trailer, video, collage, production, interview, opinion.
 
 ПОЛЯ:
 - announcement: {date, platform, what_to_expect, why_this_date, creator_quote, backstory}

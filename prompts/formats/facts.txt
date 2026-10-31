@@ -17,9 +17,12 @@
 - Пересказ новости вместо одного факта.
 - Выдуманные даты, имена, цифры.
 - Обобщения без названий.
+- Год в fact_source, если он не указан в источнике. Пиши «интервью Variety», а не «интервью Variety, 2023»: год, которого нет в материале, — выдумка.
+- key_moment, пересказывающий первый абзац text. Он добавляет деталь, а не повторяет.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, image_candidates, announcement, review, comparison, riddle, news, quote, trailer, video, collage, production, interview, opinion. Пост facts — заголовок, текст, key_moment и fact_source. Всё остальное раздувает подпись.
 
 ПОЛЯ:
 - fact_source: str
 
 ПРИМЕР:
-{ "fact_source": "Интервью Дени Вильнёва Variety, 2023" }
+{ "fact_source": "интервью Variety" }

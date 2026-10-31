@@ -15,6 +15,7 @@
 ЗАПРЕЩЕНО:
 - Выдуманные цифры.
 - Сухие цифры без контекста.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, image_candidates, announcement, review, comparison, riddle, fact_source, news, quote, trailer, video, collage, production, interview, opinion.
 
 ПОЛЯ:
 - infographic: {title: str, facts: [{label, value, note}]}

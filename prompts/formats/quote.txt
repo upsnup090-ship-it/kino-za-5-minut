@@ -16,6 +16,8 @@
 ЗАПРЕЩЕНО:
 - Отсебятина в цитате.
 - Выдуманный спикер или контекст.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, announcement, review, comparison, riddle, fact_source, news, trailer, video, collage, production, interview, opinion.
+  Пост quote — одна цитата; question уводит от неё.
 
 ПОЛЯ:
 - quote: {speaker, occasion, date}

@@ -15,6 +15,7 @@
 ЗАПРЕЩЕНО:
 - Выдумывать таймкоды.
 - Ссылку-фразу в video_url.
+- Блоки, которых нет в этом формате: question, poll_options, infographic, image_candidates, announcement, review, comparison, riddle, fact_source, news, quote, trailer, collage, production, interview, opinion.
 
 ПОЛЯ:
 - video: {timecodes: [{time, note}], speakers: str}

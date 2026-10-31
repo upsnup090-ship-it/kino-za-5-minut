@@ -15,6 +15,8 @@
 ЗАПРЕЩЕНО:
 - Приписывать реплики, которых нет в источнике.
 - Одинаковые скучные вопросы.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, image_candidates, announcement, review, comparison, riddle, fact_source, news, quote, trailer, video, collage, production, opinion.
+  Пост interview — это пары «вопрос — ответ»; question сверху дублирует их и рвёт структуру.
 
 ПОЛЯ:
 - interview: [{q: str, a: str}]

@@ -17,6 +17,7 @@
 ЗАПРЕЩЕНО:
 - Пересказ новости вместо аналитики.
 - Выдавать прогноз как свершившийся факт.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, image_candidates, announcement, review, comparison, riddle, fact_source, news, quote, trailer, video, collage, production, interview.
 
 ПОЛЯ:
 - opinion: {counterpoint, forecast, reader_takeaway}

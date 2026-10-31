@@ -15,6 +15,7 @@
 ЗАПРЕЩЕНО:
 - Список без темы.
 - Дубли элементов.
+- Блоки, которых нет в этом формате: question, poll_options, video_url, infographic, announcement, review, comparison, riddle, fact_source, news, quote, trailer, video, production, interview, opinion.
 
 ПОЛЯ:
 - collage: {theme: str, items: [{title, note}]}
