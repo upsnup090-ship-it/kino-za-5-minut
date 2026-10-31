@@ -240,16 +240,19 @@ def _upcoming_list(
 
 
 def screen_runs(cfg: Config) -> Reply:
-    """Последние записи журнала прогонов."""
+    """Последние записи журнала прогонов.
+
+    Строка рендерится из одной таблицы `runs`: исход, формат, длина подписи,
+    оценка судьи, признак ручного запуска. Читать CSV статистики и логи для
+    этого экрана больше не нужно — за это отвечала задача #69.
+    """
     db = ScheduleDb(cfg.db_path)
     records = db.recent_runs(limit=RUNS_SCREEN_LIMIT)
     if not records:
         return Reply(text="📜 Журнал прогонов пуст.", keyboard=[[_btn("◀️ Назад", "schedule")]])
     lines = ["📜 Последние прогоны", ""]
     for rec in records:
-        stamp = rec.slot_at.replace("T", " ")
-        tail = f" — {rec.reason}" if rec.reason else ""
-        lines.append(f"{stamp}  {rec.outcome}{tail}")
+        lines.append(_format_run_line(rec))
     available, total = _reserve_stats(cfg)
     lines.append("")
     lines.append(f"Резерв: доступно {available} из {total}")
@@ -257,6 +260,29 @@ def screen_runs(cfg: Config) -> Reply:
         text="\n".join(lines),
         keyboard=[[_btn("◀️ Назад", "schedule"), _btn("🏠 Домой", "home")]],
     )
+
+
+def _format_run_line(rec: Any) -> str:
+    """Одна строка журнала: время, исход, формат, длина, оценка, признак ручного.
+
+    Ручной прогон помечается `✋` и причиной: в журнале «пост по кнопке в 14:30»
+    не должен читаться как сработавший слот. Причина печатается, если она
+    есть и не совпадает с исходом.
+    """
+    stamp = rec.slot_at.replace("T", " ")
+    parts = [f"{stamp}  {rec.outcome}"]
+    if rec.is_manual:
+        parts.append("✋")
+    if rec.format:
+        parts.append(rec.format)
+    if rec.caption_len:
+        parts.append(f"{rec.caption_len} симв.")
+    if rec.quality_score is not None:
+        parts.append(f"оценка {rec.quality_score:g}")
+    tail = " · ".join(parts)
+    if rec.reason:
+        tail = f"{tail} — {rec.reason}"
+    return tail
 
 
 def _reserve_stats(cfg: Config) -> tuple[int, int]:

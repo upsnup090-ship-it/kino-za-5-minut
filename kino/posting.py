@@ -152,8 +152,56 @@ def publish_now(cfg: Config) -> RunResult:
 
     Не копия `run`, а он сам: `dry_run=False` включает state, дедупликацию,
     счётчик дня и запись в `runs`. Всё, что делает слот по расписанию.
+
+    Отличие одно — запись в `runs` помечается `is_manual`: в журнале прогонов
+    «пост по кнопке в 14:30» не должен выглядеть как сработавший слот.
     """
-    return run(cfg, dry_run=False)
+    from kino.schedule_db import ScheduleDb, ScheduleDbError
+
+    try:
+        db = ScheduleDb(cfg.db_path)
+        run_id = db.start_run(
+            slot_id=None,
+            slot_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            is_manual=True,
+            manual_reason="кнопка: финальный пост",
+        )
+    except ScheduleDbError as exc:
+        # Журнал недоступен — публикация всё равно важнее записи о ней.
+        logger.warning("постинг: не удалось открыть запись прогона (%s)", exc)
+        return run(cfg, dry_run=False)
+
+    try:
+        result = run(cfg, dry_run=False)
+    except Exception as exc:  # noqa: BLE001 — запись не должна остаться открытой
+        try:
+            db.finish_run(run_id, outcome="failed", reason=f"кнопка: {exc}")
+        except ScheduleDbError:
+            logger.debug("постинг: не удалось закрыть запись прогона %s", run_id)
+        raise
+
+    try:
+        if result.published:
+            db.finish_run(
+                run_id,
+                outcome="published",
+                reason="кнопка",
+                link=result.link or None,
+                format=result.format,
+                kind=result.kind,
+                caption_len=len(result.caption) or None,
+                quality_score=result.quality_score,
+            )
+        elif result.verdict == "reject":
+            db.finish_run(run_id, outcome="rejected", reason="кнопка: судья отбил")
+        elif result.aborted:
+            db.finish_run(run_id, outcome="failed", reason=f"кнопка: {result.abort_reason}")
+        else:
+            db.finish_run(run_id, outcome="failed", reason="кнопка: публикация не удалась")
+    except ScheduleDbError as exc:
+        logger.warning("постинг: не удалось закрыть запись прогона %s (%s)", run_id, exc)
+
+    return result
 
 
 def preview_text(prepared: Prepared, *, to_channel: bool) -> str:

@@ -224,6 +224,9 @@ class RunResult:
     #: (`runs.link`) и админке: «что было в 21:20» должно отвечать без
     #: чтения state.json и логов.
     link: str = ""
+    #: Оценка судьи 1–10. None — судья не вернул оценку, прогон прерван или
+    #: отбит до судейства. Ноль здесь был бы враньём: он тянет среднее вниз.
+    quality_score: float | None = None
 
 
 def _reject_run(cfg: Config, choice: Choice, state: State, reason: str, *, dry_run: bool) -> None:
@@ -291,6 +294,29 @@ def _notify_low_quality(
         )
     except Exception:  # noqa: BLE001 — уведомление не должно ронять прогон
         pass
+
+
+def _quality_of(final_data: dict) -> float | None:
+    """Оценка судьи 1–10 из `final_data`, или None.
+
+    Судья кладёт оценку в `quality`, анализатор — в `analysis.judge_feedback
+    .quality_score`. Порядок проверки: сначала прямой `quality` (его пишет
+    `judge()`), потом анализатор. Мусор и выход за 1..10 — None: в журнале
+    прогонов оценка должна быть либо честной, либо отсутствовать.
+    """
+    for raw in (
+        final_data.get("quality"),
+        (final_data.get("analysis") or {}).get("judge_feedback", {}).get("quality_score"),
+    ):
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if 1.0 <= value <= 10.0:
+            return value
+    return None
 
 
 def _post_hash(caption: str, image_url: str, kind: str, link_url: str) -> str:
@@ -661,6 +687,7 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             kind=kind,
             requested_kind=requested_kind,
             link=choice.item.link,
+            quality_score=_quality_of(final_data),
         )
     finally:
         lock.release()

@@ -323,6 +323,12 @@ def _serve_slots(
                         link=result.link or None,
                         format=result.format,
                         kind=result.kind,
+                        # `getattr` с умолчанием: `RunResult` — не единственный
+                        # объект, который сюда приходит (тесты подменяют его
+                        # SimpleNamespace), и падать из-за отсутствия поля
+                        # в журнале прогонов нельзя.
+                        caption_len=len(getattr(result, "caption", "") or "") or None,
+                        quality_score=getattr(result, "quality_score", None),
                     )
                     logger.info("опубликовано по слоту %s", occurrence)
                 elif result.verdict == "reject":

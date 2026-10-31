@@ -101,12 +101,32 @@ CREATE TABLE IF NOT EXISTS runs (
     link        TEXT,
     format      TEXT,
     kind        TEXT,
+    -- Ручной прогон (кнопка, `kino run --publish`) отличается от сеточного:
+    -- в журнале «что было в 21:20» и «что я нажал руками» — разные события,
+    -- и путать их в отчёте нельзя.
+    is_manual   INTEGER NOT NULL DEFAULT 0 CHECK (is_manual IN (0, 1)),
+    manual_reason TEXT NOT NULL DEFAULT '',
+    -- Длина подписи и оценка судьи: экран «Прогоны» рендерится из одной
+    -- таблицы, без чтения CSV статистики и логов.
+    caption_len   INTEGER,
+    quality_score REAL,
     FOREIGN KEY (slot_id) REFERENCES schedule_slots (id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs (started_at);
 CREATE INDEX IF NOT EXISTS idx_runs_slot ON runs (slot_id, slot_at);
 """
+
+#: Колонки, добавленные после первого релиза схемы: (имя, SQL-тип с умолчанием).
+#: `CREATE TABLE IF NOT EXISTS` на существующей БД их не создаст, поэтому
+#: `ensure_schema` досоздаёт их через `ALTER TABLE`. Порядок важен только для
+#: читаемости; SQLite добавляет колонки в конец.
+_RUNS_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("is_manual", "INTEGER NOT NULL DEFAULT 0"),
+    ("manual_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("caption_len", "INTEGER"),
+    ("quality_score", "REAL"),
+)
 
 
 class ScheduleDbError(Exception):
@@ -172,6 +192,14 @@ class RunRecord:
     link: str | None
     format: str | None
     kind: str | None
+    #: Прогон запущен руками (кнопка админки, `kino run --publish`), а не слотом.
+    is_manual: bool = False
+    #: Почему запущен ручной прогон: «кнопка: финальный пост», «ручной запуск».
+    manual_reason: str = ""
+    #: Длина подписи в символах — для экрана прогонов без чтения CSV.
+    caption_len: int | None = None
+    #: Оценка судьи 1–10. None — судья не вернул оценку или прогон не дошёл.
+    quality_score: float | None = None
 
 
 # --- низкий уровень ----------------------------------------------------------
@@ -255,16 +283,36 @@ class ScheduleDb:
         return conn
 
     def ensure_schema(self) -> None:
-        """Создаёт таблицы, если их нет. Идемпотентно."""
+        """Создаёт таблицы, если их нет, и досоздаёт новые колонки `runs`.
+
+        Идемпотентно. Миграция нужна потому, что `CREATE TABLE IF NOT EXISTS`
+        на уже существующей таблице ничего не делает: боевая БД на сервере
+        создана до появления `is_manual` и остальных, и без `ALTER TABLE`
+        запись прогона упала бы на «no such column».
+        """
         if self._schema_ready:
             return
         try:
             with self._connect() as conn:
                 conn.executescript(_SCHEMA)
+                self._migrate_runs(conn)
         except sqlite3.Error as exc:
             raise ScheduleDbError(f"не создать схему в {self.path}: {exc}") from exc
         self._schema_ready = True
         logger.debug("БД расписания готова: %s", self.path)
+
+    @staticmethod
+    def _migrate_runs(conn: sqlite3.Connection) -> None:
+        """Досоздаёт недостающие колонки `runs`. Ничего не удаляет."""
+        existing = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        for name, sql_type in _RUNS_MIGRATIONS:
+            if name in existing:
+                continue
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {name} {sql_type}")
+            logger.info("БД расписания: добавлена колонка runs.%s", name)
 
     def _conn(self) -> sqlite3.Connection:
         self.ensure_schema()
@@ -542,20 +590,32 @@ class ScheduleDb:
 
     # --- журнал прогонов ---
 
-    def start_run(self, *, slot_id: int | None, slot_at: str) -> int:
+    def start_run(
+        self,
+        *,
+        slot_id: int | None,
+        slot_at: str,
+        is_manual: bool = False,
+        manual_reason: str = "",
+    ) -> int:
         """Открывает запись прогона. `outcome` заполняется в `finish_run`.
 
         Схема требует NOT NULL на outcome, поэтому стартовая запись пишется
         как `failed` с причиной «не завершён» — если процесс упадёт посреди
         прогона, в журнале останется честная запись, а не пустая дыра.
+
+        `is_manual` отделяет ручной запуск от сеточного: в журнале это разные
+        события, и «почему в 14:30 был пост» должно отвечаться без догадок.
+        У ручного прогона `slot_id` обычно None, а `slot_at` — момент запуска.
         """
         started = _now_iso()
         try:
             with self._conn() as conn:
                 cur = conn.execute(
-                    "INSERT INTO runs (slot_id, slot_at, started_at, outcome, reason) "
-                    "VALUES (?, ?, ?, 'failed', 'прогон не завершён')",
-                    (slot_id, slot_at, started),
+                    "INSERT INTO runs (slot_id, slot_at, started_at, outcome, reason, "
+                    "is_manual, manual_reason) "
+                    "VALUES (?, ?, ?, 'failed', 'прогон не завершён', ?, ?)",
+                    (slot_id, slot_at, started, 1 if is_manual else 0, manual_reason),
                 )
                 return int(cur.lastrowid or 0)
         except sqlite3.Error as exc:
@@ -570,8 +630,15 @@ class ScheduleDb:
         link: str | None = None,
         format: str | None = None,
         kind: str | None = None,
+        caption_len: int | None = None,
+        quality_score: float | None = None,
     ) -> None:
-        """Закрывает запись прогона исходом."""
+        """Закрывает запись прогона исходом.
+
+        `caption_len` и `quality_score` необязательны: у `skipped` подписи нет,
+        у прогона без судьи нет оценки — None честнее нуля, ноль в отчёте
+        выглядел бы как «оценка 0» и тянул среднее вниз.
+        """
         if outcome not in OUTCOMES:
             raise ScheduleDbError(
                 f"неизвестный исход прогона {outcome!r}, допустимые: {', '.join(OUTCOMES)}"
@@ -580,8 +647,11 @@ class ScheduleDb:
             with self._conn() as conn:
                 conn.execute(
                     "UPDATE runs SET finished_at = ?, outcome = ?, reason = ?, link = ?, "
-                    "format = ?, kind = ? WHERE id = ?",
-                    (_now_iso(), outcome, reason, link, format, kind, run_id),
+                    "format = ?, kind = ?, caption_len = ?, quality_score = ? WHERE id = ?",
+                    (
+                        _now_iso(), outcome, reason, link, format, kind,
+                        caption_len, quality_score, run_id,
+                    ),
                 )
         except sqlite3.Error as exc:
             raise ScheduleDbError(f"не закрыть запись прогона {run_id}: {exc}") from exc
@@ -629,6 +699,10 @@ class ScheduleDb:
                 link=row["link"],
                 format=row["format"],
                 kind=row["kind"],
+                is_manual=bool(row["is_manual"]),
+                manual_reason=row["manual_reason"] or "",
+                caption_len=row["caption_len"],
+                quality_score=row["quality_score"],
             )
             for row in rows
         ]
