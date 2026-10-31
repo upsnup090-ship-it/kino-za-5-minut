@@ -32,7 +32,17 @@ LONG_POLL_TIMEOUT = 25
 
 
 class TgError(Exception):
-    """Ошибка Bot API: сеть, HTTP или `ok: false` в теле."""
+    """Ошибка Bot API: сеть, HTTP или `ok: false` в теле.
+
+    Текст ошибки уходит в лог и в чат админа, поэтому токен из него вычищается
+    на входе: `requests` вставляет полный URL в сообщение исключения, и
+    `str(exc)` у `ConnectionError` содержал бы `bot<TOKEN>`.
+    """
+
+    def __init__(self, message: str) -> None:
+        from kino.logging_util import sanitize
+
+        super().__init__(sanitize(message))
 
 
 def _url(cfg: Config, method: str) -> str:

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -24,6 +25,84 @@ logger = logging.getLogger(__name__)
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+#: Токен Bot API в URL: `https://api.telegram.org/bot<token>/sendMessage`.
+#: Токен — `<digits>:<base64url-ish>`, но формат не гарантирован, поэтому
+#: берём всё до следующего `/`, `?`, пробела или конца строки.
+_BOT_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+#: То же, но без цифр в начале — на случай, если токен уже частично вырезан.
+_BOT_TOKEN_LOOSE_RE = re.compile(r"/bot[A-Za-z0-9_-]*:[A-Za-z0-9_-]+")
+
+#: Замена, которую видит человек в логе.
+REDACTED = "bot***"
+
+
+def sanitize(text: str) -> str:
+    """Вычищает токен Bot API из строки.
+
+    Токен попадает в лог не через `logger.info("...token...")` — его приносят
+    `requests`: `ConnectionError` и `Timeout` содержат полный URL в `str(exc)`,
+    а `logger.exception` печатает traceback с этими строками. Поэтому чистить
+    надо не места вызова, а всё, что уходит в обработчики.
+
+    Функция идемпотентна: уже вычищенный текст не меняется.
+    """
+    if not text:
+        return text
+    cleaned = _BOT_TOKEN_RE.sub(REDACTED, text)
+    cleaned = _BOT_TOKEN_LOOSE_RE.sub("/" + REDACTED, cleaned)
+    return cleaned
+
+
+class SecretFilter(logging.Filter):
+    """Фильтр, вычищающий токены из записи до форматирования.
+
+    Ставится на каждый handler, а не на логгер: `logger.exception` собирает
+    traceback уже внутри `emit`, поэтому фильтр на логгере его не увидит.
+    Здесь `record.msg` и `record.args` переписываются на месте, а traceback
+    подменяется через `record.exc_text` (его `Formatter` предпочтёт
+    `exc_info`, если уже посчитал).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.msg, str):
+                record.msg = sanitize(record.msg)
+            if record.args:
+                if isinstance(record.args, dict):
+                    # logging разворачивает `logger.info("%(k)s", {"k": v})`
+                    # в `record.args = {"k": v}` — mapping, не tuple.
+                    record.args = {
+                        key: sanitize(value) if isinstance(value, str) else value
+                        for key, value in record.args.items()
+                    }
+                elif isinstance(record.args, tuple):
+                    record.args = tuple(
+                        self._clean_arg(item) for item in record.args
+                    )
+            # Traceback: `Formatter.format` берёт `exc_text`, если он не пуст.
+            # Считаем сами и чистим — иначе URL с токеном уйдёт в файл.
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text:
+                record.exc_text = sanitize(record.exc_text)
+            if record.stack_info:
+                record.stack_info = sanitize(record.stack_info)
+        except Exception:  # noqa: BLE001 — фильтр не имеет права ронять логирование
+            pass
+        return True
+
+    @staticmethod
+    def _clean_arg(item: object) -> object:
+        """Чистит один аргумент: строку или mapping (`%(key)s` — тоже текст)."""
+        if isinstance(item, str):
+            return sanitize(item)
+        if isinstance(item, dict):
+            return {
+                key: sanitize(value) if isinstance(value, str) else value
+                for key, value in item.items()
+            }
+        return item
 
 
 def setup_logging(
@@ -42,6 +121,10 @@ def setup_logging(
 
     Уровень — из `level` (по умолчанию INFO). Не бросает исключение при
     недоступном каталоге: логирование не должно ронять приложение.
+
+    На каждый handler ставится `SecretFilter`: токен Bot API не должен
+    попадать ни в файл, ни в journald, ни в stdout — ни из сообщения, ни из
+    traceback упавшего `requests`.
     """
     level_num = getattr(logging, level.upper(), logging.INFO)
 
@@ -81,6 +164,7 @@ def setup_logging(
         handlers.append(console_handler)
 
     for handler in handlers:
+        handler.addFilter(SecretFilter())
         root.addHandler(handler)
 
     # Промежуточные логгеры пакета наследуют уровень от root; явно не

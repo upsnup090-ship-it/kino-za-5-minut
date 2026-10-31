@@ -19,7 +19,16 @@ API_BASE = "https://api.telegram.org"
 
 
 class PublishError(Exception):
-    """Ошибка публикации."""
+    """Ошибка публикации.
+
+    Текст уходит в лог и в уведомление админу, поэтому токен вычищается на
+    входе — по той же причине, что в `TgError`.
+    """
+
+    def __init__(self, message: str) -> None:
+        from kino.logging_util import sanitize
+
+        super().__init__(sanitize(message))
 
 
 def _api_url(token: str, method: str) -> str:
