@@ -61,7 +61,10 @@ def _item(title: str = "Dune 3 gets release date", link: str = "https://x/dune3"
         link=link,
         pub_date="2026-10-31",
         ts=1793436000.0,
-        snippet=title,
+        # Кино-контекст: фильтр релевантности choose() поднимает RuntimeError
+        # на score=0 (fix «политэкономия проходит как кино»), тестовые
+        # заголовки одни порога не достигают.
+        snippet=f"{title}. The movie premiere filming wrapped as the film crew finished production",
         images=["https://img/1.jpg"],
     )
 
