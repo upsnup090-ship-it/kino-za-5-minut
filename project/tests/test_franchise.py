@@ -224,9 +224,13 @@ def _cfg(tmp_path: Path, **kwargs) -> Config:
 
 
 def _item(title: str, link: str = "") -> FeedItem:
+    # Тестовые тайтлы произвольные («A», «B») — без кино-маркеров,
+    # поэтому к сниппету добавляем кино-контекст: иначе новый фильтр
+    # релевантности (RuntimeError на нуле) валит тесты кулдауна.
     return FeedItem(
-        source="t", title=title, link=link or f"https://x/{title[:10]}",
-        pub_date="", ts=0.0, snippet=title,
+        source="t", title=f"{title} movie premiere",
+        link=link or f"https://x/{title[:10]}",
+        pub_date="", ts=0.0, snippet=f"{title} movie premiere filming",
     )
 
 

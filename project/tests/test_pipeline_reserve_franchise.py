@@ -52,6 +52,9 @@ def _cfg(tmp_path: Path, **kwargs) -> Config:
 
 
 def _item(title: str = "Dune 3 gets release date", link: str = "https://x/dune3") -> FeedItem:
+    # Кино-контекст в сниппете: фильтр релевантности choose() поднимает
+    # RuntimeError на нуле (см. fix «политэкономия проходит как кино»),
+    # тестовые заголовки одни не дают порога.
     return FeedItem(
         source="Deadline",
         title=title,
