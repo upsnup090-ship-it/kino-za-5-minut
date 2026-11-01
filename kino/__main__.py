@@ -159,9 +159,14 @@ def _cmd_collect_only(cfg: Config) -> int:
     from kino.collect import collect
 
     collected = collect(cfg)
+    # `items` уже обрезан до settings.top_n (25 по умолчанию) — это пул для
+    # пайплайна, а не «сколько собрано». Свежих до обрезки показывает
+    # fresh_count. Печатать len(items) как «собрано» значит врать: на сервере
+    # это давало «собрано: 25, свежих 600» при 770 материалах в кэше.
     logger.info(
-        "собрано: %d записей, свежих %d, битых источников %d",
-        len(collected.items), collected.fresh_count, len(collected.broken),
+        "собрано: %d свежих, в пул отдано %d (top_n=%d), битых источников %d",
+        collected.fresh_count, len(collected.items),
+        cfg.settings.top_n, len(collected.broken),
     )
     for broken in collected.broken:
         logger.warning("битый источник: %s", broken)

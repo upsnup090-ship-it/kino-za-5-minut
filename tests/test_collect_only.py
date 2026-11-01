@@ -18,7 +18,7 @@ from kino.__main__ import _cmd_collect_only, build_parser
 def _cfg(tmp_path: Path) -> SimpleNamespace:
     cache = tmp_path / "feed_cache"
     cache.mkdir()
-    return SimpleNamespace(cache_dir=cache)
+    return SimpleNamespace(cache_dir=cache, settings=SimpleNamespace(top_n=25))
 
 
 def _items(n: int) -> list[SimpleNamespace]:
@@ -89,3 +89,25 @@ def test_collect_only_counts_cache_files(tmp_path, caplog):
         _cmd_collect_only(cfg)
 
     assert any("кэш: 2 файлов" in r.getMessage() for r in caplog.records)
+
+
+def test_summary_reports_fresh_not_truncated_pool(tmp_path, caplog):
+    """«Собрано» — это fresh_count, а не len(items): items обрезан до top_n.
+
+    На сервере 1.11 лог печатал «собрано: 25, свежих 600» при 770 материалах
+    в кэше — пул для пайплайна (top_n=25) выдавался за объём сбора.
+    """
+    import logging
+
+    cfg = _cfg(tmp_path)
+    cfg.settings = SimpleNamespace(top_n=25)
+    collected = SimpleNamespace(items=_items(25), fresh_count=600, broken=[])
+
+    with caplog.at_level(logging.INFO, logger="kino.__main__"), \
+         patch("kino.collect.collect", return_value=collected):
+        _cmd_collect_only(cfg)
+
+    line = next(r.getMessage() for r in caplog.records if "собрано:" in r.getMessage())
+    assert "600 свежих" in line
+    assert "25" in line  # пул, но подписан как пул, а не как «собрано»
+    assert "top_n=25" in line
