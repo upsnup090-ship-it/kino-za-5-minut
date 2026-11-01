@@ -373,6 +373,45 @@ mtime (`STALE_AFTER_SECONDS`, по умолчанию час). Битый или
 фолбэк-модель. Пустой `content` при `finish_reason=length` считается провалом
 попытки, а не «нет JSON» — иначе судья молча ставил бы `fallback`.
 
+## Сетевой контроль (`net_guard.py`)
+
+Все HTTP-запросы проекта идут через `kino/net_guard.get/post` — прямые
+`requests.*` запрещены (проверка: `python -m kino.net_guard --audit`).
+
+Классы доступа:
+
+| Класс | Что | Хосты |
+|-------|-----|-------|
+| `read` | RSS, Wikipedia, graph.org, quickchart.io, i.ytimg.com | allowlist read |
+| `llm` | LLM-провайдеры | allowlist llm; `LLM_BASE_URL` валидируется при загрузке конфига |
+| `publish` | Telegram Bot API | `api.telegram.org` |
+| `proxy` | прокси | хосты из `PROXY_URL`/`LLM_PROXY_URL`/`GRAPH_PROXY_URL` |
+| `loopback` | bind/запросы внутри машины | `127.0.0.1`, `localhost`, `::1` |
+
+Правила внешних классов: только https, только FQDN из allowlist (поддомены
+разрешены), IP-литералы и нестандартные порты запрещены, редиректы
+запрещены (`allow_redirects=False` по умолчанию). Loopback — не внешняя
+сеть: http и любой порт допустимы.
+
+Встроенный allowlist — в `net_guard._embedded_allowlist()`; опциональный
+внешний файл `_work/network_allowlist.yaml` имеет приоритет, если существует.
+
+## Классификатор файлов (`klass.py`)
+
+`kino.klass.classify(path)` определяет класс файла по пути (без раскрытия
+symlink): `EXCLUDED` (`.git`, `venv`, `__pycache__`, `.mypy_cache`,
+`.pytest_cache` — на любой глубине), `DERIV` (`logs/`, `data/feed_cache/`),
+`STATE` (`data/*.db*`, `state.json`), `SECRET` (`.env*`,
+`data/graph_token.txt`), `ORIG` (всё остальное). Класс определяет
+страховку: git-файл — откат git, не-git — копия содержимого в чат перед
+первым изменением.
+
+## Временные файлы
+
+Атомарная запись (state, кэш фидов, токен graph.org) использует
+`kino.tmp_dir.TMP_DIR` = `project/.tmp/` — записей в `/tmp` нет
+(`.tmp/` в `.gitignore`).
+
 ## Уведомления админу
 
 `notify_admin` шлёт короткое сообщение в `ADMIN_CHAT_ID` и используется в двух
