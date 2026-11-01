@@ -175,7 +175,7 @@ def test_run_backs_off_on_conflict(tmp_path):
             raise TgConflict("409 Conflict")
         return (None, 0)
 
-    with patch("kino.admin.poll_once", side_effect=_poll), \
+    with patch("kino.admin.transport.poll_once", side_effect=_poll), \
          patch("time.sleep"):
         # once=True: один конфликт → выход с кодом 1
         code = run(cfg, once=True)
@@ -197,7 +197,7 @@ def test_run_reports_conflict_once(tmp_path, caplog):
         return (None, 0)
 
     with caplog.at_level(logging.ERROR, logger="kino.admin"), \
-         patch("kino.admin.poll_once", side_effect=_poll), \
+         patch("kino.admin.transport.poll_once", side_effect=_poll), \
          patch("time.sleep"):
         # once=False → цикл, но обрываем после 4-й попытки
         original = __import__("time").sleep
@@ -232,7 +232,7 @@ def test_run_clears_conflict_state_on_success(tmp_path, caplog):
         raise KeyboardInterrupt
 
     with caplog.at_level(logging.INFO, logger="kino.admin"), \
-         patch("kino.admin.poll_once", side_effect=_poll), \
+         patch("kino.admin.transport.poll_once", side_effect=_poll), \
          patch("time.sleep"):
         try:
             run(cfg, once=False)
@@ -259,7 +259,7 @@ def test_run_backoff_grows_and_caps(tmp_path):
         if seconds > 0.001:  # отсекаем tick=2.0 от backoff
             sleeps.append(seconds)
 
-    with patch("kino.admin.poll_once", side_effect=_poll), \
+    with patch("kino.admin.transport.poll_once", side_effect=_poll), \
          patch("time.sleep", side_effect=_sleep):
         try:
             run(cfg, once=False)
