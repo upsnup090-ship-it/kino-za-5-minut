@@ -13,8 +13,12 @@ from kino.config import Config
 from kino.schedule_db import ScheduleDb, ScheduleDbError
 
 from kino.admin.common import Reply, _btn
+from kino.admin.posting import handle_post_button
 from kino.admin.screens import (
+    _last_run_line,
     _reserve_stats,
+    _safe_paused,
+    _serve_state_line,
     screen_home,
     screen_preview,
     screen_runs,
@@ -43,8 +47,12 @@ def _handle_nav(cfg: Config, arg: str, now: datetime | None) -> Reply:
         return screen_today(cfg, now)
     if arg.startswith("runs"):
         return screen_runs(cfg)
+    if arg == "runnow":
+        return handle_post_button(cfg, "final", now)
     if arg in ("state", "state:refresh"):
-        return screen_home(cfg, view="full")
+        return screen_state(cfg)
+    if arg == "state:errors":
+        return screen_state_errors(cfg)
     return screen_home(cfg)
 
 
@@ -74,6 +82,67 @@ def _handle_state(cfg: Config, arg: str, now: datetime | None) -> Reply:
         reply.text = f"{head}\n\n{reply.text}"
         return reply
     return screen_home(cfg, view="full")
+
+
+def screen_state(cfg: Config) -> Reply:
+    """Развёрнутый статус автопубликации (безопасный read-only экран)."""
+    db = ScheduleDb(cfg.db_path)
+    paused = _safe_paused(db)
+    available, total = _reserve_stats(cfg)
+    lines = [
+        "📡 Состояние автопубликации",
+        "",
+        _serve_state_line(db),
+        _last_run_line(db),
+        f"резерв: {available} из {total}",
+        f"пауза: {'включена' if paused else 'снята'}",
+    ]
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[
+            [_btn("🔄 Обновить", "nav:state:refresh"), _btn("📜 Ошибки", "nav:state:errors")],
+            [_btn("◀️ Назад", "nav:full")],
+        ],
+    )
+
+
+def screen_state_errors(cfg: Config) -> Reply:
+    """Последние ошибки за сутки из журнала прогонов (`failed`, `rejected`)."""
+    db = ScheduleDb(cfg.db_path)
+    now = datetime.now().astimezone()
+    since = now - timedelta(hours=24)
+    try:
+        records = db.recent_runs(limit=200)
+    except ScheduleDbError:
+        records = []
+
+    bad = []
+    for rec in records:
+        if rec.outcome not in ("failed", "rejected"):
+            continue
+        try:
+            started = datetime.fromisoformat(rec.started_at)
+        except ValueError:
+            continue
+        if started >= since:
+            bad.append(rec)
+
+    lines = ["📜 Последние ошибки (24ч)", ""]
+    if not bad:
+        lines.append("ошибок не было")
+    else:
+        for rec in bad[:20]:
+            stamp = rec.slot_at.replace("T", " ")[:16]
+            reason = rec.reason or "без причины"
+            lines.append(f"{stamp} · {rec.outcome} — {reason}")
+
+    return Reply(
+        text="\n".join(lines),
+        keyboard=[
+            [_btn("🔄 Обновить", "nav:state:errors")],
+            [_btn("◀️ Назад", "nav:state")],
+        ],
+    )
 
 
 def screen_reserve(cfg: Config) -> Reply:

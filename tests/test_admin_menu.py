@@ -126,6 +126,14 @@ def test_full_has_pause_in_actions_group(tmp_path):
     assert "state:pause" in data
 
 
+def test_full_has_runnow_and_errors(tmp_path):
+    data = _data(screen_home(_cfg(tmp_path), view="full"))
+
+    assert "nav:runnow" in data
+    assert "nav:state" in data
+    assert "nav:state:errors" in data
+
+
 def test_full_has_more_blocks_than_compact(tmp_path):
     cfg = _cfg(tmp_path)
     compact = screen_home(cfg, view="compact")
@@ -280,6 +288,24 @@ def test_nav_reserve_opens_screen(tmp_path):
     reply = handle_callback(_cfg(tmp_path), "nav:reserve", _now())
 
     assert "Резерв" in reply.text
+
+
+def test_nav_state_opens_state_screen(tmp_path):
+    reply = handle_callback(_cfg(tmp_path), "nav:state", _now())
+
+    assert "Состояние автопубликации" in reply.text
+
+
+def test_nav_state_errors_screen(tmp_path):
+    reply = handle_callback(_cfg(tmp_path), "nav:state:errors", _now())
+
+    assert "Последние ошибки" in reply.text
+
+
+def test_nav_runnow_starts_final_post(tmp_path):
+    reply = handle_callback(_cfg(tmp_path), "nav:runnow", _now())
+
+    assert "Запустил финальный пост" in reply.text
 
 
 # --- старые колбэки не сломаны -----------------------------------------------

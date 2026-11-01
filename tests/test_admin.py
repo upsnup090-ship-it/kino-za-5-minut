@@ -391,13 +391,27 @@ def test_callback_edit_prompts_for_time(tmp_path):
 
 def test_callback_add_prompts(tmp_path):
     reply = handle_callback(_cfg(tmp_path), "add", _now())
-    assert "Добавление слота" in reply.text
+    assert "выбери день недели" in reply.text
+    data = [b["callback_data"] for row in reply.keyboard for b in row]
+    assert "add:day:4" in data
+
+
+def test_callback_add_day_prompts_with_command(tmp_path):
+    reply = handle_callback(_cfg(tmp_path), "add:day:4", _now())
+    assert "/slot add пт HH:MM" in reply.text
 
 
 def test_callback_unknown_returns_schedule(tmp_path):
     cfg = _cfg(tmp_path)
     ScheduleDb(cfg.db_path).seed_defaults()
     reply = handle_callback(cfg, "garbage", _now())
+    assert "Расписание публикаций" in reply.text
+
+
+def test_callback_add_day_bad_falls_back(tmp_path):
+    cfg = _cfg(tmp_path)
+    ScheduleDb(cfg.db_path).seed_defaults()
+    reply = handle_callback(cfg, "add:day:9", _now())
     assert "Расписание публикаций" in reply.text
 
 

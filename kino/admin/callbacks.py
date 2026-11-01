@@ -36,7 +36,8 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
     кнопками, и «кнопка устарела» на них — плохой ответ.
     """
     db = ScheduleDb(cfg.db_path)
-    action, _, arg = (data or "").partition(":")
+    raw = data or ""
+    action, _, arg = raw.partition(":")
 
     if action == "home":
         return screen_home(cfg)
@@ -59,12 +60,33 @@ def handle_callback(cfg: Config, data: str, now: datetime | None = None) -> Repl
     if action == "state":
         return _handle_state(cfg, arg, now)
 
-    if action == "add":
+    if raw == "add":
         return Reply(
             text=(
-                "Добавление слота.\n"
-                "Напиши день и время одной строкой: пт 23:40\n"
-                "Или командой: /slot add пт 23:40"
+                "Добавление слота: выбери день недели.\n"
+                "На следующем шаге пришли время в формате HH:MM."
+            ),
+            keyboard=[
+                [
+                    _btn("пн", "add:day:0"), _btn("вт", "add:day:1"), _btn("ср", "add:day:2"), _btn("чт", "add:day:3"),
+                ],
+                [
+                    _btn("пт", "add:day:4"), _btn("сб", "add:day:5"), _btn("вс", "add:day:6"),
+                ],
+                [_btn("◀️ Назад", "schedule")],
+            ],
+        )
+    if action == "add" and arg.startswith("day:"):
+        weekday = arg.split(":", 1)[1]
+        if weekday not in {"0", "1", "2", "3", "4", "5", "6"}:
+            return screen_schedule(cfg, now)
+        names = {"0": "пн", "1": "вт", "2": "ср", "3": "чт", "4": "пт", "5": "сб", "6": "вс"}
+        day = names[weekday]
+        return Reply(
+            text=(
+                f"Добавление слота для {day}.\n"
+                f"Отправь команду: /slot add {day} HH:MM\n"
+                f"Пример: /slot add {day} 23:40"
             ),
             keyboard=[[_btn("◀️ Назад", "schedule")]],
         )

@@ -72,14 +72,15 @@ def screen_home(cfg: Config, view: str = "compact") -> Reply:
     else:
         keyboard.append([_btn("👁 7 дней", "nav:next7"), _btn("🗄 Резерв", "nav:reserve")])
         keyboard.append([_btn("📊 Итог за вчера", "nav:today")])
+        keyboard.append([_btn("📡 Состояние", "nav:state"), _btn("📜 Ошибки", "nav:state:errors")])
         # Опасное — отдельной группой внизу, и только здесь (задача #77):
         # в верхнем ряду пауза дублировала бы действие, которое не должно
         # нажиматься случайно.
         keyboard.append([
             _btn("▶️ Возобновить" if paused else "⏸ Пауза публикаций", "state:pause"),
-            _btn("🔄 Обновить", "nav:state:refresh"),
+            _btn("▶️ Запустить сейчас", "nav:runnow"),
         ])
-        keyboard.append([_btn("◀️ Свернуть", "nav:compact")])
+        keyboard.append([_btn("🔄 Обновить", "nav:state:refresh"), _btn("◀️ Свернуть", "nav:compact")])
     return Reply(text="\n".join(lines), keyboard=keyboard)
 
 
