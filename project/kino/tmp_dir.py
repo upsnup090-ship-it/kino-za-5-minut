@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-TMP_DIR = Path("/workspace/project/.tmp")
+TMP_DIR = Path(__file__).resolve().parents[1] / ".tmp"
 
 
 def ensure_tmp_dir() -> Path:

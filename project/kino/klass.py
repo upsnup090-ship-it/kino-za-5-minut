@@ -77,12 +77,18 @@ def _match(rel: str, pattern: str) -> bool:
     return rel == pattern.rstrip("/*")
 
 
+#: Корень проекта по умолчанию — каталог пакета kino на одну ступень выше
+#: (кросс-платформенно: работает и в песочнице /workspace/project, и на
+#: сервере /opt/kino/app).
+_DEFAULT_ROOT = str(Path(__file__).resolve().parents[1])
+
+
 def classify(
     path: str | Path,
     *,
-    project_root: str | Path = "/workspace/project",
+    project_root: str | Path = "",
 ) -> FileClass:
-    root = os.path.normpath(str(project_root))
+    root = os.path.normpath(project_root or _DEFAULT_ROOT)
     raw = str(path)
     if not os.path.isabs(raw):
         raw = os.path.join(root, raw)
@@ -118,6 +124,6 @@ def classify(
 def is_original(
     path: str | Path,
     *,
-    project_root: str | Path = "/workspace/project",
+    project_root: str | Path = "",
 ) -> bool:
     return classify(path, project_root=project_root) == FileClass.ORIG
