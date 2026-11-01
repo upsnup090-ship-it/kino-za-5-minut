@@ -1,0 +1,19 @@
+.env*
+logs/
+__pycache__/
+*.pyc
+venv/
+.venv/
+data/*.json
+data/*.lock
+data/*.txt
+data/*.bak*
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/feed_cache/
+# Артефакты генерации фиксов (git format-patch и т.п.)
+*.patch
+# MCP-эксперименты — не коммитить (решение оператора)
+mcp/

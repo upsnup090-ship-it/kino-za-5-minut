@@ -187,7 +187,19 @@ def test_command_admin_matches_home(tmp_path):
 
 def test_command_help(tmp_path):
     reply = handle_command(_cfg(tmp_path), "/help", _now())
-    assert "Всё на кнопках" in reply.text
+    assert "Справка" in reply.text
+    assert "/schedule" in reply.text
+
+
+def test_command_unknown_shows_hint(tmp_path):
+    """Произвольный текст — короткая подсказка, не старое меню-дубль."""
+    reply = handle_command(_cfg(tmp_path), "/nonsense", _now())
+    assert "Я на кнопках" in reply.text
+    assert reply.keyboard == [[{"text": "◀️ Главный экран", "callback_data": "nav:home"}]]
+
+
+def test_command_empty_text_shows_hint(tmp_path):
+    assert "Я на кнопках" in handle_command(_cfg(tmp_path), "", _now()).text
 
 
 def test_command_schedule_matches_button_screen(tmp_path):
@@ -265,13 +277,6 @@ def test_command_slot_without_args(tmp_path):
     assert "Нужно действие" in reply.text
 
 
-def test_command_unknown_shows_help(tmp_path):
-    reply = handle_command(_cfg(tmp_path), "/nonsense", _now())
-    assert "/schedule" in reply.text
-
-
-def test_command_empty_text_shows_help(tmp_path):
-    assert "/slot" in handle_command(_cfg(tmp_path), "", _now()).text
 
 
 def test_command_next(tmp_path):

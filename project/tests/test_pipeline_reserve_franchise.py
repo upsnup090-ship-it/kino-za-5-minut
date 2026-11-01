@@ -72,9 +72,9 @@ def _run(cfg: Config, *, dry_run: bool, verdict: str = "accept", item: FeedItem 
     with patch("kino.pipeline.collect", return_value=collected), \
          patch("kino.pipeline.draft", return_value=draft_data), \
          patch("kino.pipeline.judge_with_analysis", return_value=judge_data), \
-         patch("kino.pipeline.find_image_multi",
+         patch("kino.variation.find_image_multi",
                return_value=SimpleNamespace(url="https://img/1.jpg", title="", lang="")), \
-         patch("kino.pipeline.find_images", return_value=[]), \
+         patch("kino.variation.find_images", return_value=[]), \
          patch("kino.pipeline.publish", return_value=verdict != "reject"), \
          patch("kino.pipeline.build_caption_text", return_value="Подпись поста"), \
          patch("kino.pipeline.record_format_stat"):

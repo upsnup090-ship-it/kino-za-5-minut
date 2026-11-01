@@ -154,8 +154,9 @@ def test_screen_has_navigation_buttons(tmp_path):
     reply = screen_runs(cfg)
     data = [btn["callback_data"] for row in reply.keyboard for btn in row]
 
-    assert "schedule" in data
-    assert "home" in data
+    # Колбэки S0-схемы: nav:schedule (расписание) и nav:home (главный экран).
+    assert "nav:schedule" in data
+    assert "nav:home" in data
 
 
 # --- _quality_of -------------------------------------------------------------

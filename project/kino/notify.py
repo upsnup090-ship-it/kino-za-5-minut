@@ -18,11 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
-# Use the original built‑in socket if it was saved by ``sitecustomize``;
-# otherwise fall back to the (possibly stubbed) ``socket`` module.
-_socket_mod = sys.modules.get("_original_socket") or __import__("socket")
-socket_mod = _socket_mod
+import socket
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +55,7 @@ def _send(payload: str) -> bool:
     sock: socket.socket | None = None
     try:
         # Абстрактный namespace: '@' в окружении = нулевой байт в адресе.
-        sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_DGRAM)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         if address.startswith("@"):
             sock.connect("\0" + address[1:])
         else:

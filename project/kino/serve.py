@@ -444,11 +444,25 @@ def serve(cfg: Config, *, dry_run: bool = False, once: bool = False, tick_second
     notify.ready(f"режим windows, окон {len(schedule.windows)}")
 
     iterations = 0
+    db = ScheduleDb(cfg.db_path)
     while not stopper.stopping:
         iterations += 1
         now = datetime.now(schedule.zone)
         # Пинг watchdog в начале тика — см. комментарий в _serve_slots.
         notify.watchdog()
+
+        # Пауза публикаций (кнопка «⏸ Пауза публикаций» в админке) — та же
+        # семантика, что в _serve_slots: окно не помечается отработанным,
+        # после снятия паузы пост вернётся в работу без догонки. Без этой
+        # проверки windows-цикл продолжал бы публиковать на паузе.
+        if db.is_paused():
+            if iterations % 30 == 1:  # раз в ~30 тиков, чтобы не спамить
+                logger.info("пауза публикаций: окна не обрабатываются")
+            if once:
+                break
+            time.sleep(max(1, tick))
+            continue
+
         state = load_state(cfg.state_path)
         day = state_day(state)
 

@@ -1,17 +1,21 @@
+# --- корень workspace: в git идёт только проект и служебное ---
+# секреты
 .env*
-logs/
+!.env.example
+# окружения и кэши
+venv/
 __pycache__/
 *.pyc
-venv/
-.venv/
-data/*.json
-data/*.lock
-data/*.txt
-data/*.bak*
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
-data/feed_cache/
-# Артефакты генерации фиксов (git format-patch и т.п.)
+# не-код артефакты и бэкапы
+*.zip
 *.patch
+*.sock
+# служебные каталоги агента (не код)
+_baseline/
+_work/
+_agent_log.md
+# логи/данные проектов по умолчанию
+logs/
+data/*.db*
+data/*.json
+data/feed_cache/

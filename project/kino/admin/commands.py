@@ -28,7 +28,7 @@ def handle_command(cfg: Config, text: str, now: datetime | None = None) -> Reply
     """Разбирает команду и возвращает экран. Неизвестная — подсказку."""
     parts = (text or "").split()
     if not parts:
-        return _help()
+        return _not_a_command()
     cmd = parts[0].split("@")[0].lower()
     args = parts[1:]
 
@@ -42,30 +42,42 @@ def handle_command(cfg: Config, text: str, now: datetime | None = None) -> Reply
         return screen_preview(cfg, now)
     if cmd == "/slot":
         return _handle_slot(cfg, args, now)
-    return _help()
+    if cmd == "/help":
+        return _help()
+    return _not_a_command()
 
 
 def _help() -> Reply:
-    """Короткая справка. Постинг и расписание живут на кнопках главного экрана.
+    """Короткая справка по команде /help.
 
     Каждая команда, которую принимает `handle_command`, названа здесь: справка,
     которая молчит про работающую команду, — это баг, а не стиль. Тест
-    `test_command_unknown_shows_help` это и держит.
+    `test_command_unknown_shows_help` это держит.
     """
     return Reply(
         text=(
-            "Всё на кнопках:\n"
-            "/start или /admin — главный экран\n"
+            "ℹ️ Справка\n"
+            "\n"
+            "Кнопки (главный экран /start):\n"
             "🧪 тестовый пост — в личку\n"
             "🚀 финальный пост — в канал\n"
             "📅 публикации — сетка, слоты, прогоны\n"
-            "\nКоманды:\n"
+            "📡 состояние автопубликации\n"
+            "\n"
+            "Команды:\n"
             "/schedule — расписание (тот же экран, что кнопка 📅)\n"
             "/next — ближайшие 7 дней\n"
-            "/slot add|del|on|off <день> <HH:MM>\n"
-            "/slot clear <день>"
+            "/help — эта справка"
         ),
-        keyboard=[[_btn("◀️ Главный экран", "home")]],
+        keyboard=[[_btn("◀️ Главный экран", "nav:home")]],
+    )
+
+
+def _not_a_command() -> Reply:
+    """Ответ на произвольный текст вместо старого меню-дубля."""
+    return Reply(
+        text="Я на кнопках. Открываю главное меню 👇",
+        keyboard=[[_btn("◀️ Главный экран", "nav:home")]],
     )
 
 

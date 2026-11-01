@@ -18,8 +18,18 @@ from kino import notify
 
 @pytest.fixture
 def notifier(tmp_path: Path, monkeypatch):
-    """Живой unix-сокет, в который пишет notify, и читалка из него."""
-    socket_path = str(tmp_path / "notify.sock")
+    """Живой unix-сокет, в который пишет notify, и читалка из него.
+
+    Путь обязан быть коротким: proot-песочница (RikkaHub) ограничивает адрес
+    unix-сокета ~15 байтами (на боевом Linux лимит 108, там любой путь ок).
+    Поэтому биндим фиксированный короткий путь в /tmp, а не tmp_path;
+    тесты не пересекаются, т.к. выполняются последовательно.
+    """
+    socket_path = "/tmp/n.sock"
+    try:
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        pass
     server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     server.bind(socket_path)
     server.settimeout(1.0)
@@ -31,6 +41,10 @@ def notifier(tmp_path: Path, monkeypatch):
 
     yield read
     server.close()
+    try:
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        pass
 
 
 @pytest.fixture
@@ -169,11 +183,22 @@ def _serve_cfg(tmp_path: Path):
 
 
 def test_serve_sends_ready_and_ping(tmp_path, notifier):
-    """serve в режиме windows: READY на старте, WATCHDOG на тике."""
+    """serve в режиме windows: READY на старте, WATCHDOG на тике.
+
+    pipeline.run замокан: этот тест проверяет sd_notify-протокол, а не сбор.
+    Раньше заглушка socket маскировала реальный вызов коллектора — с
+    sources=[] он поднимал RuntimeError «сбор: 0 записей» раньше READY.
+    """
     from kino.serve import serve
+    from unittest.mock import patch
+    from kino.pipeline import RunResult
 
     cfg = _serve_cfg(tmp_path)
-    serve(cfg, once=True)
+    with patch("kino.serve.run", return_value=RunResult(
+        caption="", image_url="", format="news",
+        published=False, dry_run=True, kind="text",
+    )):
+        serve(cfg, once=True)
 
     assert notifier() == "READY=1\nSTATUS=режим windows, окон 1"
     assert notifier() == "WATCHDOG=1"
@@ -182,12 +207,18 @@ def test_serve_sends_ready_and_ping(tmp_path, notifier):
 def test_serve_slots_sends_ready_and_ping(tmp_path, notifier):
     from kino.schedule_db import ScheduleDb
     from kino.serve import serve
+    from unittest.mock import patch
+    from kino.pipeline import RunResult
 
     cfg = _serve_cfg(tmp_path)
     cfg.settings.schedule_mode = "slots"
     ScheduleDb(cfg.db_path).add_slot(5, "16:40")
 
-    serve(cfg, once=True)
+    with patch("kino.serve.run", return_value=RunResult(
+        caption="", image_url="", format="news",
+        published=False, dry_run=True, kind="text",
+    )):
+        serve(cfg, once=True)
 
     assert notifier() == "READY=1\nSTATUS=режим slots, слотов 1"
     assert notifier() == "WATCHDOG=1"
@@ -195,9 +226,15 @@ def test_serve_slots_sends_ready_and_ping(tmp_path, notifier):
 
 def test_serve_without_systemd_does_not_crash(tmp_path, no_socket):
     from kino.serve import serve
+    from unittest.mock import patch
+    from kino.pipeline import RunResult
 
     cfg = _serve_cfg(tmp_path)
-    assert serve(cfg, once=True) == 0
+    with patch("kino.serve.run", return_value=RunResult(
+        caption="", image_url="", format="news",
+        published=False, dry_run=True, kind="text",
+    )):
+        assert serve(cfg, once=True) == 0
 
 
 def test_stopper_sends_stopping(tmp_path, notifier):

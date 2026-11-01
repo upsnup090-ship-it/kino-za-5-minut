@@ -104,7 +104,7 @@ def test_random_link_variation_also_uses_feed_video():
 # --- карусель: дедуп с основной картинкой и фолбэк на фид --------------------
 
 def test_gallery_dedups_main_image_and_keeps_order():
-    with patch("kino.pipeline.find_images", return_value=[
+    with patch("kino.variation.find_images", return_value=[
             "https://wiki/a.jpg", "https://wiki/a.jpg", "https://wiki/b.jpg"]):
         urls = _gallery_images("w", {"film": "F", "director": "D"}, _choice("collage"),
                                "https://wiki/a.jpg", _pcfg())
@@ -113,7 +113,7 @@ def test_gallery_dedups_main_image_and_keeps_order():
 
 def test_gallery_falls_back_to_feed_images():
     """Wiki отдала только main-картинку → не хватает кадров, берём из фида."""
-    with patch("kino.pipeline.find_images", return_value=["https://wiki/main.jpg"]):
+    with patch("kino.variation.find_images", return_value=["https://wiki/main.jpg"]):
         choice = _choice("collage", images=["https://feed/1.jpg", "https://feed/2.jpg"])
         urls = _gallery_images("w", {}, choice, "https://wiki/main.jpg", _pcfg())
     assert urls == ["https://feed/1.jpg", "https://feed/2.jpg"]

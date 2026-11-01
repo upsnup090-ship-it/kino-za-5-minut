@@ -73,7 +73,7 @@ def test_none_deadline_uses_config(tmp_path):
          patch("kino.pipeline.choose") as mch, \
          patch("kino.pipeline.draft") as md, \
          patch("kino.pipeline.judge_with_analysis") as mj, \
-         patch("kino.pipeline.find_image_multi") as mi, \
+         patch("kino.variation.find_image_multi") as mi, \
          patch("kino.pipeline.StateLock") as ml:
         ml.return_value.acquire.return_value = True
         mc.return_value = SimpleNamespace(items=[item], broken=[])
@@ -132,7 +132,7 @@ def test_image_skipped_when_budget_exhausted_before_image(tmp_path, monkeypatch)
          patch("kino.pipeline.choose") as mch, \
          patch("kino.pipeline.draft") as md, \
          patch("kino.pipeline.judge_with_analysis") as mj, \
-         patch("kino.pipeline.find_image_multi") as mi, \
+         patch("kino.variation.find_image_multi") as mi, \
          patch("kino.pipeline.StateLock") as ml:
         ml.return_value.acquire.return_value = True
         mc.return_value = SimpleNamespace(items=[item], broken=[])
@@ -177,7 +177,7 @@ def test_slow_collect_leaves_full_budget_to_llm(tmp_path):
          patch("kino.pipeline.choose") as mock_choose, \
          patch("kino.pipeline.draft", side_effect=fake_draft), \
          patch("kino.pipeline.judge_with_analysis") as mock_judge, \
-         patch("kino.pipeline.find_image_multi"), \
+         patch("kino.variation.find_image_multi"), \
          patch("kino.pipeline.save_state"), \
          patch("kino.pipeline.StateLock") as mock_lock:
 
