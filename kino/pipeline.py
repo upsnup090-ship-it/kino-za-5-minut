@@ -227,6 +227,10 @@ class RunResult:
     #: Оценка судьи 1–10. None — судья не вернул оценку, прогон прерван или
     #: отбит до судейства. Ноль здесь был бы враньём: он тянет среднее вниз.
     quality_score: float | None = None
+    #: Классы материала и число допущенных форматов (маршрутизация, Фаза 5).
+    #: Нужны dry-run выводу: «класс материала и допущенные форматы» (§7).
+    kinds: tuple[str, ...] = ()
+    allowed_count: int = 0
 
 
 def _reject_run(cfg: Config, choice: Choice, state: State, reason: str, *, dry_run: bool) -> None:
@@ -332,26 +336,75 @@ def _post_hash(caption: str, image_url: str, kind: str, link_url: str) -> str:
 
 
 def record_format_stat(cfg: Config, choice: Choice) -> None:
-    """Дописывает строку в CSV статистики форматов. Ошибки записи не роняют пайплайн."""
+    """Дописывает строку в CSV статистики форматов. Ошибки записи не роняют пайплайн.
+
+    Колонки (§7, Фаза 5): `timestamp, format, source, quality_score, kinds,
+    allowed_count`. `kinds` — классы материала (через `|`), `allowed_count` —
+    сколько форматов было допущено. По этим двум видно мёртвые форматы и
+    долю фолбэка за неделю, не читая логов.
+
+    Старый CSV (4 колонки) мигрируется на месте: заголовок дополняется
+    `kinds,allowed_count`, старые строки — пустыми полями. Иначе строки
+    разной ширины били бы CSV (ровно та ошибка, из-за которой
+    `stats_collector.py` вынесен в отдельный файл).
+    """
     if not cfg.stats_path:
         return
     try:
         cfg.stats_path.parent.mkdir(parents=True, exist_ok=True)
         new_file = not cfg.stats_path.exists()
+        if not new_file:
+            _migrate_stats_header(cfg.stats_path)
         with cfg.stats_path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             if new_file:
-                writer.writerow(["timestamp", "format", "source", "quality_score"])
+                writer.writerow(
+                    ["timestamp", "format", "source", "quality_score", "kinds", "allowed_count"]
+                )
             writer.writerow(
                 [
                     datetime.now(timezone.utc).isoformat(),
                     choice.format,
                     choice.item.source,
                     choice.quality_score,
+                    "|".join(getattr(choice, "kinds", ())),
+                    getattr(choice, "allowed_count", 0),
                 ]
             )
     except OSError as exc:
         logger.warning("не удалось записать статистику формата: %s", exc)
+
+
+def _migrate_stats_header(path: Path) -> None:
+    """Дополняет старый 4-колоночный заголовок до 6 колонок.
+
+    Миграция на месте: читаем, дописываем заголовок и пустые поля к старым
+    строкам, пишем обратно. Если заголовок уже 6 колонок — ничего не делаем.
+    Пустой файл (есть, но без строк) — оставляем как есть: `record_format_stat`
+    допишет строку, но заголовок так и не появится; это редкий край, и
+    переписывать пустой файл ради него не стоит.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    if not lines:
+        return
+    header = next(csv.reader([lines[0]]))
+    if len(header) >= 6:
+        return
+    if header[:4] != ["timestamp", "format", "source", "quality_score"]:
+        # Не наш старый формат — не трогаем, чтобы не испортить чужой файл.
+        return
+    # Дополняем заголовок и каждую строку до 6 полей.
+    out = [",".join(header + ["kinds", "allowed_count"])]
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        fields = next(csv.reader([line]))
+        fields += [""] * (6 - len(fields))
+        out.append(",".join(fields))
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 def build_caption(draft_data: dict, image_url: str, cfg: Config, kind: str = "",
@@ -533,6 +586,8 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
                 dry_run=dry_run,
                 verdict=verdict,
                 link=choice.item.link,
+                kinds=getattr(choice, "kinds", ()),
+                allowed_count=getattr(choice, "allowed_count", 0),
             )
 
         # Точечное уведомление о низком качестве: оценка судьи есть и ниже
@@ -688,6 +743,8 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             requested_kind=requested_kind,
             link=choice.item.link,
             quality_score=_quality_of(final_data),
+            kinds=getattr(choice, "kinds", ()),
+            allowed_count=getattr(choice, "allowed_count", 0),
         )
     finally:
         lock.release()

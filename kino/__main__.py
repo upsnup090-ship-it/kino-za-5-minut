@@ -150,6 +150,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         setup_logging(cfg)
         result = run(cfg, dry_run=dry_run)
         logger.info("формат: %s, dry_run: %s, published: %s", result.format, result.dry_run, result.published)
+        if result.kinds:
+            logger.info(
+                "маршрут: класс=%s, допущено форматов=%d",
+                ",".join(result.kinds), result.allowed_count,
+            )
         if result.kind:
             logger.info("вариация: %s (выбрана %s)", result.kind, result.requested_kind or result.kind)
         logger.info("подпись (%d символов):\n%s", len(result.caption), result.caption)

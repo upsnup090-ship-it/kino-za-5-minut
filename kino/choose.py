@@ -85,6 +85,12 @@ class Choice:
     format: str
     quality_score: int
     sad_topic: bool
+    #: Классы материала (маршрутизация, Фаза 5): для CSV-статистики видно,
+    #: почему выбран этот формат. Пусто — маршрутизация выключена.
+    kinds: tuple[str, ...] = ()
+    #: Сколько форматов было допущено для этого материала. Пустой список
+    #: допущенных (фолбэк) даёт 1 — это и есть «ушёл в фолбэк».
+    allowed_count: int = 0
 
 
 def _word_boundary_pattern(phrase: str) -> re.Pattern:
@@ -224,7 +230,7 @@ def _pick_format_routed(
     item: FeedItem,
     cfg: Config,
     sad_topic: bool,
-) -> str:
+) -> tuple[str, tuple[str, ...], int]:
     """Формат по маршрутизации: классы материала → допущенные → взвешенный выбор.
 
     Подключение Фазы 4 (docs/source-routing-design.md). Три слоя, все
@@ -235,6 +241,10 @@ def _pick_format_routed(
     2. `detect_signals` — дата/числа/спикер/видео;
     3. `allowed_formats` → `pick_format` — взвешенный рандол внутри
        допущенных (веса ренормализуются).
+
+    Возвращает `(формат, классы, число_допущенных)` — классы и допуск нужны
+    CSV-статистике (Фаза 5), чтобы по ней было видно мёртвые форматы и долю
+    фолбэка за неделю.
 
     Sad-фильтр применяется **после** маршрута, как и раньше: траурная тема
     не должна получить `poll`/`riddle`, даже если маршрут их допустил.
@@ -258,8 +268,8 @@ def _pick_format_routed(
 
     if sad_topic and chosen not in _SAD_SAFE:
         logger.info("маршрут: sad-фильтр заменил %s на news", chosen)
-        return "news"
-    return chosen
+        return "news", tuple(sorted(kinds)), len(allowed)
+    return chosen, tuple(sorted(kinds)), len(allowed)
 
 
 def _feed_kind_for(item: FeedItem, cfg: Config) -> str:
@@ -345,8 +355,10 @@ def choose(
     item = random.choice(window)
 
     sad_topic = _contains_phrase(f"{item.title} {item.snippet} {item.link}", cfg.sad)
+    kinds: tuple[str, ...] = ()
+    allowed_count = 0
     if _routing_enabled(cfg):
-        fmt = _pick_format_routed(item, cfg, sad_topic)
+        fmt, kinds, allowed_count = _pick_format_routed(item, cfg, sad_topic)
     else:
         fmt = _pick_format(cfg.weights, sad_topic)
 
@@ -355,4 +367,6 @@ def choose(
         format=fmt,
         quality_score=_relevance_score(item),
         sad_topic=sad_topic,
+        kinds=kinds,
+        allowed_count=allowed_count,
     )

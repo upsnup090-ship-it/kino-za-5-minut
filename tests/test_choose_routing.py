@@ -146,8 +146,9 @@ def test_sad_topic_overrides_routed_format(tmp_path):
         snippet="The director passed away.",
     )
     # sad-фильтр в _pick_format_routed возвращает news для не-SAD_SAFE.
-    fmt = _pick_format_routed(item, cfg, sad_topic=True)
+    fmt, kinds, count = _pick_format_routed(item, cfg, sad_topic=True)
     assert fmt == "news"
+    assert kinds  # классы всё равно передаются для CSV
 
 
 def test_sad_topic_keeps_sad_safe_formats(tmp_path):
@@ -158,8 +159,9 @@ def test_sad_topic_keeps_sad_safe_formats(tmp_path):
         snippet="He said: I will miss him.",
     )
     # speaker-сигнал есть (прямая речь), quote допущен и SAD_SAFE.
-    fmt = _pick_format_routed(item, cfg, sad_topic=True)
+    fmt, kinds, count = _pick_format_routed(item, cfg, sad_topic=True)
     assert fmt in {"news", "facts", "quote"}
+    assert count >= 1
 
 
 # --- §8.9: откат -------------------------------------------------------------
