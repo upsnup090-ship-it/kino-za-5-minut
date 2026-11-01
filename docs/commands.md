@@ -56,6 +56,9 @@ cd /workspace/project
 # Один пост без публикации (по умолчанию --dry-run)
 venv/bin/python -m kino run --dry-run
 
+# Только собрать фиды и наполнить кэш — без LLM и без публикации
+venv/bin/python -m kino run --collect-only
+
 # Реальная публикация в канал
 venv/bin/python -m kino run --publish
 
@@ -224,8 +227,8 @@ journalctl -u kino -n 30
 ```bash
 cd /opt/kino/project
 
-# 1. Свежие фиды: один прогон сбора (без публикации) наполняет кэш
-sudo -u kino venv/bin/python -m kino run --dry-run
+# 1. Свежие фиды: только сбор, кэш наполняется, LLM не вызывается
+sudo -u kino venv/bin/python -m kino run --collect-only
 
 # 2. Сколько файлов в кэше и на какую дату
 ls -la data/feed_cache/*.xml | wc -l
@@ -237,6 +240,10 @@ sudo -u kino venv/bin/python scripts/routing_report.py
 # 4. То же с JSON — приложить к решению
 sudo -u kino venv/bin/python scripts/routing_report.py --json /tmp/routing-server.json
 ```
+
+**`--collect-only`, а не `--dry-run`.** Оба наполняют кэш, но `--dry-run`
+дополнительно генерирует черновик и гоняет судью — токены тратятся на пост,
+который тут же выбрасывается. Для замера нужен только сбор.
 
 Смотрим на три цифры: доля `news` в ожидаемом выборе, допуск `facts`,
 форматы с нулём допусков. По ним выбирается сценарий S1 (мягкий) / S2

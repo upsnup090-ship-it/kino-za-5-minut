@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="реальная отправка в канал",
     )
+    run_parser.add_argument(
+        "--collect-only",
+        action="store_true",
+        help="только собрать фиды и наполнить кэш, без LLM и публикации",
+    )
 
     draft_parser = sub.add_parser("draft", help="сгенерировать черновик по заданной теме")
     draft_parser.add_argument("topic", help="тема поста")
@@ -143,11 +148,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cmd_collect_only(cfg: Config) -> int:
+    """Собрать фиды, наполнить кэш, напечатать сводку. Без LLM и без публикации.
+
+    Нужен для замера маршрутизации (Фаза 6): `routing_report.py` читает
+    `data/feed_cache/*.xml`, а боевой `run` пишет туда же на каждом удачном
+    ответе. Полный `run --dry-run` тоже наполнил бы кэш, но потратил бы
+    токены на черновик и судью, которые тут же выбрасываются.
+    """
+    from kino.collect import collect
+
+    collected = collect(cfg)
+    logger.info(
+        "собрано: %d записей, свежих %d, битых источников %d",
+        len(collected.items), collected.fresh_count, len(collected.broken),
+    )
+    for broken in collected.broken:
+        logger.warning("битый источник: %s", broken)
+    if not collected.items:
+        logger.error("сбор не дал записей — кэш не пополнился")
+        return 1
+    cache_dir = Path(cfg.cache_dir)
+    cached = sorted(cache_dir.glob("*.xml")) if cache_dir.exists() else []
+    logger.info("кэш: %d файлов в %s", len(cached), cache_dir)
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     dry_run = not args.publish
     try:
         cfg = load_config()
         setup_logging(cfg)
+        if getattr(args, "collect_only", False):
+            return _cmd_collect_only(cfg)
         result = run(cfg, dry_run=dry_run)
         logger.info("формат: %s, dry_run: %s, published: %s", result.format, result.dry_run, result.published)
         if result.kinds:
