@@ -118,7 +118,15 @@ _KIND_MARKERS: dict[str, tuple[str, ...]] = {
     "production": (
         "съемк*", "закулисье*", "кастинг*", "присоединились", "павильон*",
         "спецэффект*", "дубл*", "режиссер снял*", "behind the scenes",
-        "casting*", "production*", "wrapped", "filming", "reshoot*", "vfx",
+        "casting*", "filming", "reshoot*", "vfx",
+        "film production", "movie production", "production design",
+        "production company", "production team", "production began",
+        "production wrapped", "production started", "production crew",
+        "production process", "production stage", "production of the film",
+        "production of the movie", "pre-production", "post-production",
+        "in production", "into production", "production on",
+        "wraps production", "wraps filming", "wrapped filming",
+        "wrapped production",
     ),
     "analysis": (
         "почему", "тренд*", "рынок*", "индустри*", "стратеги*", "лонгрид*",

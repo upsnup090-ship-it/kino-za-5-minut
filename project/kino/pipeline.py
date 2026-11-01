@@ -324,13 +324,23 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
             # LLM-фазе (черновик → судья → публикация) — свежий полный бюджет,
             # каким бы долгим ни был сбор.
             deadline = Deadline(cfg.settings.deadline_seconds)
-        choice: Choice = choose(
-            collected.items,
-            cfg,
-            used_links,
-            used_sigs,
-            franchise_history=[tuple(x) for x in state.franchise_history],  # type: ignore[misc]
-        )
+        try:
+            choice: Choice = choose(
+                collected.items,
+                cfg,
+                used_links,
+                used_sigs,
+                franchise_history=[tuple(x) for x in state.franchise_history],  # type: ignore[misc]
+            )
+        except RuntimeError as exc:
+            # Сбор есть, но ни одна запись не киношная — штатный пропуск
+            # поста (как DraftError): служба живёт, админ узнаёт причину.
+            logger.error("тема не выбрана, пост пропущен: %s", exc)
+            if not dry_run:
+                from kino.publish import notify_admin
+
+                notify_admin(cfg, f"пост не опубликован: тема не выбрана ({exc})")
+            return _abort(f"тема не выбрана: {exc}")
         logger.info("тема выбрана: %s | формат: %s",
                     choice.item.title[:80], choice.format)
 

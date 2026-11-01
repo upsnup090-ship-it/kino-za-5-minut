@@ -318,7 +318,14 @@ def choose(
             continue
         relevant.append(item)
 
-    usable = relevant if relevant else allowed
+    if not relevant:
+        # Все записи без единого киношного термина — политэкономия/SEO.
+        # Пропускаем прогон (админ получит уведомление), а не «ничего → всё»:
+        # иначе фильтр превращается в свою противоположность и LLM тратит
+        # токены на заведомо непроходной пост.
+        raise RuntimeError("выбор: ни одной киношной записи в сборе")
+
+    usable = relevant
 
     sigs: list[list[str]] = []
     deduped: list[FeedItem] = []
