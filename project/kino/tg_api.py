@@ -22,6 +22,7 @@ import requests
 from requests.exceptions import HTTPError, RequestException
 
 from kino.config import Config
+from kino.net_guard import post as http_post
 from kino.publish import API_BASE, _proxies, _retry_after
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,12 @@ def call(
     last_error = ""
     for attempt in range(max_attempts):
         try:
-            response = requests.post(
+            response = http_post(
                 _url(cfg, method),
                 data=data,
                 timeout=cfg.settings.telegram_timeout,
                 proxies=_proxies(cfg),
+                net_class="publish",
             )
         except RequestException as exc:
             last_error = exc.__class__.__name__

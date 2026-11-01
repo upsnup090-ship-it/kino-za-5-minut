@@ -26,7 +26,7 @@ from kino.judge import judge_with_analysis
 def _cfg() -> SimpleNamespace:
     return SimpleNamespace(
         settings=Settings(judge_max_tokens=2048),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         judge_model="primary",
         judge_fallback_model="",

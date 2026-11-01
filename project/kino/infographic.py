@@ -23,6 +23,8 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from kino.net_guard import require_class
+
 logger = logging.getLogger(__name__)
 
 _QC_BASE = "https://quickchart.io/chart"
@@ -133,6 +135,13 @@ def build_url(title: str, facts: list[dict[str, str]],
             f"&w={width}&h={height}"
         )
         if len(url) <= _MAX_URL:
+            # Бот в QuickChart не ходит, но URL обязан пройти политику
+            # (AGENT.md §3): при нарушении — «графики нет», пост уйдёт в текст.
+            try:
+                require_class(_QC_BASE, "read")
+            except Exception:  # noqa: BLE001 — сбой политики не должен ронять пайплайн
+                logger.warning("инфографика: URL не прошёл сетевую политику")
+                return ""
             return url
 
     logger.warning("инфографика: URL длиннее %d символов, уходим в текст", _MAX_URL)

@@ -12,6 +12,7 @@ import requests
 from requests.exceptions import HTTPError, RequestException
 
 from kino.config import Config
+from kino.net_guard import post as http_post
 
 logger = logging.getLogger(__name__)
 
@@ -103,11 +104,12 @@ def _send_with_retry(cfg: Config, method: str, payload: dict) -> bool:
 
     for attempt in range(max_attempts):
         try:
-            response = requests.post(
+            response = http_post(
                 _api_url(cfg.bot_token, method),
                 data=payload,
                 timeout=cfg.settings.telegram_timeout,
                 proxies=_proxies(cfg),
+                net_class="publish",
             )
             response.raise_for_status()
             return True
@@ -258,11 +260,12 @@ def notify_admin(cfg: Config, text: str) -> None:
     attempts = max(1, min(3, cfg.settings.retry_max_attempts))
     for attempt in range(attempts):
         try:
-            response = requests.post(
+            response = http_post(
                 _api_url(cfg.bot_token, "sendMessage"),
                 data={"chat_id": cfg.admin_chat_id, "text": text},
                 timeout=cfg.settings.telegram_timeout,
                 proxies=_proxies(cfg),
+                net_class="publish",
             )
         except RequestException as exc:
             logger.warning(

@@ -12,6 +12,7 @@ import requests
 from kino.choose import Choice
 from kino.collect import FeedItem
 from kino.config import Config
+from kino.net_guard import post as http_post
 from kino.constants import BUDGET_CEILING, BUDGET_MIN_USEFUL
 from kino.deadline import Deadline
 from kino.jsonparse import parse_json_object
@@ -160,12 +161,13 @@ def _post_chat(cfg: Config, body: dict, *, deadline: Deadline | None = None) -> 
                 raise DraftError("бюджет прогона исчерпан до запроса к LLM")
             timeout = deadline.slice(timeout)
         try:
-            return requests.post(
+            return http_post(
                 url,
                 json=body,
                 headers={"Authorization": f"Bearer {cfg.llm_api_key}"},
                 timeout=timeout,
                 proxies=proxies,
+                net_class="llm",
             )
         except requests.Timeout as exc:
             raise DraftError(f"таймаут LLM ({base_timeout}с)") from exc

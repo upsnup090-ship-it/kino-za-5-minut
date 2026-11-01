@@ -20,6 +20,8 @@ import feedparser
 import requests
 
 from kino.config import Config, Source
+from kino.net_guard import get as http_get
+from kino.tmp_dir import TMP_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,9 @@ def _write_cache(cfg: Config, name: str, payload: bytes) -> None:
     path = _cache_path(cfg, name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".feed-", suffix=".tmp")
+        # Временные файлы — только внутри периметра (AGENT.md §2, не /tmp).
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(TMP_DIR), prefix=".feed-", suffix=".tmp")
         with os.fdopen(fd, "wb") as f:
             f.write(payload)
         os.replace(tmp, path)
@@ -227,10 +231,11 @@ def _fetch_raw(source: Source, cfg: Config, *, deadline: Deadline | None = None)
         timeout = cfg.settings.collect_timeout
         if deadline is not None:
             timeout = deadline.slice(timeout)
-        response = requests.get(
+        response = http_get(
             source.url,
             timeout=timeout,
             headers={"User-Agent": cfg.settings.user_agent},
+            net_class="read",
         )
         response.raise_for_status()
         _write_cache(cfg, source.name, response.content)

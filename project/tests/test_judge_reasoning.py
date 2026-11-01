@@ -113,7 +113,7 @@ def test_judge_prompt_date_matches_draft_prompt():
         settings=Settings(judge_max_tokens=4096, judge_disable_reasoning=False),
         judge_model="deepseek-v4-flash",
         draft_model="m",
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
     )
     draft_user = build_prompt(_choice_with_ts(ts), cfg)["messages"][1]["content"]

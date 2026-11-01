@@ -25,6 +25,7 @@ from urllib.parse import quote, unquote, urlparse
 import requests
 
 from kino.config import Config
+from kino.net_guard import get as http_get
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,12 @@ def _search(lang: str, query: str, cfg: Config, limit: int = 3) -> list[dict]:
     url = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/page"
     for attempt in range(3):
         try:
-            response = requests.get(
+            response = http_get(
                 url,
                 params={"q": query, "limit": limit},
                 headers={"User-Agent": cfg.settings.wiki_user_agent},
                 timeout=cfg.settings.wiki_timeout,
+                net_class="read",
             )
         except requests.RequestException as exc:
             logger.warning("wiki %s: %s", lang, exc.__class__.__name__)
@@ -186,10 +188,11 @@ def _summary_thumb(lang: str, key: str, cfg: Config) -> str:
     """Превью статьи по точному ключу. Пусто, если картинки нет."""
     _throttle()
     try:
-        response = requests.get(
+        response = http_get(
             f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(key, safe='')}",
             headers={"User-Agent": cfg.settings.wiki_user_agent},
             timeout=cfg.settings.wiki_timeout,
+            net_class="read",
         )
         response.raise_for_status()
         data = response.json()

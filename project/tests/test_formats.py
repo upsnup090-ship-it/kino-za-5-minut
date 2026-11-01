@@ -282,7 +282,7 @@ def test_sad_topic_keeps_safe_format():
 
 def test_judge_empty_containers_do_not_wipe_draft():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     draft = {"headline": "H", "text": "T",
              "poll_options": ["Дюна", "Оппенгеймер"],
@@ -299,7 +299,7 @@ def test_judge_empty_containers_do_not_wipe_draft():
 
 def test_judge_nonempty_containers_replace_draft():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     new_opts = ["Дюна", "Тернир"]
     with patch("kino.judge._request_judge",
@@ -313,7 +313,7 @@ def test_judge_nonempty_containers_replace_draft():
 
 def test_judge_drop_fields_removes_nested_path():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
                return_value=({"verdict": "accept", "drop_fields": ["review.rating"]}, "", False)):
@@ -326,7 +326,7 @@ def test_judge_drop_fields_removes_nested_path():
 
 def test_judge_drop_fields_ignores_invalid_path():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
                return_value=({"verdict": "accept", "drop_fields": ["notdict.child", 123]}, "", False)):
@@ -342,7 +342,7 @@ def test_judge_drop_fields_removes_flat_key():
     требовал точку в пути и молча пропускал поля.
     """
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
                return_value=({"verdict": "accept", "drop_fields": ["film", "release"]}, "", False)):
@@ -356,7 +356,7 @@ def test_judge_drop_fields_removes_flat_key():
 
 def test_judge_drop_fields_missing_flat_key_is_noop():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
                return_value=({"verdict": "accept", "drop_fields": ["nonexistent"]}, "", False)):
@@ -366,7 +366,7 @@ def test_judge_drop_fields_missing_flat_key_is_noop():
 
 def test_judge_drop_fields_empty_list_is_noop():
     cfg = SimpleNamespace(
-        settings=Settings(), llm_base_url="http://llm.test", llm_api_key="k",
+        settings=Settings(), llm_base_url="https://llm.test", llm_api_key="k",
         judge_model="primary", judge_fallback_model="")
     with patch("kino.judge._request_judge",
                return_value=({"verdict": "accept", "drop_fields": []}, "", False)):

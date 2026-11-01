@@ -289,7 +289,7 @@ def _serve_cfg(tmp_path: Path, **settings_kwargs) -> Config:
         bad=[],
         sad=[],
         settings=Settings(**params),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="d",
         judge_model="j",

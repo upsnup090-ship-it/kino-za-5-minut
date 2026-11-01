@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from kino.net_guard import require_llm_base_url
+
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
 
@@ -445,6 +447,12 @@ def load_config(env_file: str | None = None) -> Config:
         raise ConfigError("LLM_BASE_URL не задан (ни в .env, ни в providers.<name>.base_url)")
     if not llm_api_key:
         raise ConfigError("LLM_API_KEY не задан (ни в .env, ни в providers.<name>.api_key)")
+
+    # Хост LLM проверяется при загрузке конфига (AGENT.md §3): не https /
+    # IP-литерал / не из allowlist-класса llm — отказ на старте, а не
+    # молчаливый уход запроса в чужой адрес. Пустой URL уже отловлен выше
+    # как ConfigError.
+    require_llm_base_url(llm_base_url)
 
     return Config(
         sources=sources,

@@ -23,7 +23,7 @@ def _choice() -> Choice:
 def _cfg() -> Config:
     return Config(
         settings=Settings(draft_max_tokens=1500),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="gemini-3.8-flash",
     )

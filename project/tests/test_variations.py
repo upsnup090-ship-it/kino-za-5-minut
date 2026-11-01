@@ -103,7 +103,7 @@ def _judge_response(payload, status: int = 200, *, finish_reason: str = "stop", 
 def _judge_cfg(**kwargs) -> Config:
     return Config(
         settings=Settings(),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         judge_model="primary",
         **kwargs,
@@ -228,7 +228,7 @@ def _pipeline_cfg(tmp_path) -> Config:
         bad=[],
         sad=[],
         settings=Settings(),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="d",
         judge_model="j",
@@ -278,7 +278,7 @@ def test_judge_network_error_goes_through_ladder_and_fallback():
     def fake_post(cfg_arg, body, **kwargs):
         calls.append(body["model"])
         if body["model"] == "primary":
-            raise DraftError("нет соединения с LLM (http://llm.test): ConnectionError")
+            raise DraftError("нет соединения с LLM (https://llm.test): ConnectionError")
         return _judge_response({"verdict": "accept", "headline": "H2"})
 
     with patch("kino.judge._post_chat", side_effect=fake_post), \

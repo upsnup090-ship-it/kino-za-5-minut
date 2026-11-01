@@ -38,7 +38,7 @@ def _cfg(tmp_path: Path, **kwargs) -> Config:
         bad=[],
         sad=[],
         settings=Settings(**settings),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="d",
         judge_model="j",

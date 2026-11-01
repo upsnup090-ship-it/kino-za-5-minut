@@ -23,6 +23,9 @@ from urllib.parse import urlparse
 
 import requests
 
+from kino.net_guard import post as http_post
+from kino.tmp_dir import TMP_DIR
+
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.graph.org"
@@ -67,7 +70,10 @@ def _post(method: str, payload: dict) -> dict:
     last_error: Exception | None = None
     for attempt in range(RETRY_ATTEMPTS):
         try:
-            response = requests.post(url, data=payload, timeout=TIMEOUT, proxies=proxies)
+            response = http_post(
+                url, data=payload, timeout=TIMEOUT, proxies=proxies,
+                net_class="read",
+            )
             response.raise_for_status()
             data = response.json()
         except (requests.Timeout, requests.ConnectionError) as exc:
@@ -112,7 +118,9 @@ def load_token(state_path: Path) -> str:
     if not token:
         raise ArticleError("createAccount не вернул access_token")
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(state_path.parent), text=True)
+    # Временные файлы — только внутри периметра (AGENT.md §2, не /tmp).
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(TMP_DIR), text=True)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
     os.replace(tmp, state_path)

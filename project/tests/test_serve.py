@@ -27,7 +27,7 @@ def _cfg(tmp_path: Path) -> Config:
             log_purge_interval_hours=24,
             log_file=str(tmp_path / "logs" / "kino.log"),
         ),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="d",
         judge_model="j",

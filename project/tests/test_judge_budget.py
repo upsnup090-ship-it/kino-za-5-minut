@@ -21,7 +21,7 @@ from kino.judge import judge
 def _cfg(fallback_model: str = ""):
     return SimpleNamespace(
         settings=Settings(judge_max_tokens=2048),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         judge_model="primary",
         judge_fallback_model=fallback_model,

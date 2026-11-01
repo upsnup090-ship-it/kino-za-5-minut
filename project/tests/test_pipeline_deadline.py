@@ -18,7 +18,7 @@ def _cfg(tmp_path) -> Config:
         bad=[],
         sad=[],
         settings=Settings(),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         draft_model="d",
         judge_model="j",
@@ -112,7 +112,7 @@ def test_deadline_config_loaded_from_yaml(monkeypatch, tmp_path):
     """
     from kino.config import load_config
 
-    monkeypatch.setenv("LLM_BASE_URL", "http://llm.test")
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.test")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("DRAFT_MODEL", "d")
     monkeypatch.setenv("JUDGE_MODEL", "j")

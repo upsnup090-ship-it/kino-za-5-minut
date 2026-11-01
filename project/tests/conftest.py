@@ -3,8 +3,29 @@
 import pytest
 from unittest.mock import patch
 
+from kino import net_guard
 from kino.config import Config, Settings
 from kino.collect import FeedItem
+
+# Вымышленные тестовые хосты. Сеть в тестах замокана, реальных запросов нет;
+# без этого allowlist роняет конфиг-тесты на загрузке LLM_BASE_URL.
+_TEST_HOSTS = {
+    "llm": ["llm.test"],
+}
+
+
+@pytest.fixture(autouse=True)
+def _test_allowlist():
+    """Тестовые хосты в allowlist только на сеанс тестов (reload до/после)."""
+    net_guard.reload_allowlist()
+    cfg = net_guard._load_allowlist()
+    for net_class, hosts in _TEST_HOSTS.items():
+        bucket = cfg.setdefault(net_class, [])
+        for host in hosts:
+            if host not in bucket:
+                bucket.append(host)
+    yield
+    net_guard.reload_allowlist()
 
 
 @pytest.fixture

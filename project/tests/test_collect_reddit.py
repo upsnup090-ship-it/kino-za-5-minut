@@ -30,7 +30,7 @@ def _cfg(**kwargs) -> Config:
     return Config(
         sources=[],
         settings=Settings(**kwargs),
-        llm_base_url="http://llm.test",
+        llm_base_url="https://llm.test",
         llm_api_key="k",
         bot_token="b",
     )

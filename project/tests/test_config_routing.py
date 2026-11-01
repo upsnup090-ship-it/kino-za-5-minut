@@ -27,7 +27,7 @@ CONFIG_DIR = ROOT / "config"
 
 #: Минимальное окружение, без которого load_config требует BOT_TOKEN.
 ENV_MOCK = {
-    "LLM_BASE_URL": "http://llm.test",
+    "LLM_BASE_URL": "https://llm.test",
     "LLM_API_KEY": "k",
     "BOT_TOKEN": "test-token",
     "CHANNEL_CHAT_ID": "-100test",

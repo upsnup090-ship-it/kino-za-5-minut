@@ -198,7 +198,13 @@ def save_state(path: Path, state: State, max_links: int, max_sigs: int) -> None:
         "last_post_at": state.last_post_at,
         "franchise_history": state.franchise_history[-20:],
     }
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".state-", suffix=".tmp")
+    # Временные файлы — только внутри периметра (AGENT.md §2, не /tmp).
+    # os.replace ниже ведёт tmp_path в path — переход через другой каталог
+    # допустим, оба внутри /workspace/project.
+    from kino.tmp_dir import TMP_DIR
+
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(TMP_DIR), prefix=".state-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
