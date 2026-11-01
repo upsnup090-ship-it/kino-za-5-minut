@@ -49,17 +49,32 @@ serve-once:
 draft:
 	$(PYTHON) -m kino draft $(TOPIC)
 
-## Установка systemd-юнита на VPS (требует root)
+## Установка systemd-юнитов на VPS (требует root)
 deploy:
-	sudo cp deploy/kino.service /etc/systemd/system/kino.service
+	sudo cp deploy/kino.service deploy/kino-admin.service /etc/systemd/system/
 	sudo systemctl daemon-reload
-	sudo systemctl enable --now kino
+	sudo systemctl enable --now kino kino-admin
 
-## Остановка сервиса
+## Обновление кода на сервере (git pull в копию + rsync в /opt/kino/app + рестарт)
+update:
+	git pull origin main
+	sudo -u kino ./deploy/update.sh --restart
+
+## Только rsync без рестарта
+update-code:
+	sudo -u kino ./deploy/update.sh
+
+## Статус и здоровье обоих сервисов
+health:
+	@systemctl --no-pager -l status kino kino-admin | grep -E "●|Active:|Status:" || true
+	@echo "--- последние события ---"
+	@journalctl -u kino -n 10 --no-pager -o cat | tail -10
+
+## Остановка сервисов
 stop:
-	sudo systemctl stop kino
+	sudo systemctl stop kino kino-admin
 
-## Логи сервиса
+## Логи сервиса (реальное время)
 logs:
 	journalctl -u kino -f
 

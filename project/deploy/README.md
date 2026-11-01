@@ -63,13 +63,33 @@ systemctl show kino -p WatchdogUSec       # WatchdogUSec=3min
 В `systemctl status kino` строка `Status:` показывает, что процесс сам
 сообщил: `режим slots, слотов 13` или `режим windows, окон 2`.
 
+## Обновление кода на сервере (обычный цикл)
+
+Боевой код живёт в `/opt/kino/app` (не git!). Git-копия — отдельно, служит
+источником обновлений. Цикл обновления:
+
+```bash
+cd /opt/kino/project && sudo -u kino git pull origin main
+sudo -u kino /opt/kino/app/deploy/update.sh --restart
+```
+
+или одной командой из git-копии (внутри неё `project/` — рабочая директория):
+
+```bash
+cd /opt/kino/project && make update
+```
+
+`update.sh` синхронизирует код rsync'ом в `/opt/kino/app`, **не трогая**
+боевые `data/`, `logs/`, `venv/`, `.env`. `make health` — статус обоих
+сервисов и последние события; `make stop` — остановка.
+
 ## Управление
 
 ```bash
-sudo systemctl status kino        # статус
-sudo systemctl restart kino       # перезапуск
-sudo systemctl stop kino          # остановка (SIGTERM, пост доигрывается)
-journalctl -u kino -f             # логи в реальном времени
+sudo systemctl status kino kino-admin   # статус
+sudo systemctl restart kino             # перезапуск публикаций
+sudo systemctl stop kino kino-admin     # остановка (SIGTERM, пост доигрывается)
+journalctl -u kino -f                   # логи в реальном времени
 ```
 
 ## Как это работает
