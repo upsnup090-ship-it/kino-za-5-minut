@@ -26,7 +26,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-ALLOWLIST_PATH = Path("/workspace/_work/network_allowlist.yaml")
+ALLOWLIST_PATH = Path(__file__).resolve().parents[1] / "config" / "network_allowlist.yaml"
 
 
 class NetworkClass:
@@ -61,6 +61,7 @@ def _embedded_allowlist() -> dict[str, list[str]]:
             "openrouter.ai",
             "api.openai.com",
             "api.groq.com",
+            "ai.reqline.ru",  # свой шлюз к OpenRouter (боевой сервер)
         ],
         "publish": ["api.telegram.org"],
         "proxy": [],

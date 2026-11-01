@@ -1,0 +1,39 @@
+# Расширение встроенного allowlist (kino/net_guard.py: _embedded_allowlist).
+# Файл опционален: нет файла — работает встроенный список; есть — значения
+# ФАЙЛА ЗАМЕНЯЮТ встроенные целиком (не дополняют). Держим список полным.
+read:
+  - deadline.com
+  - variety.com
+  - hollywoodreporter.com
+  - slashfilm.com
+  - indiewire.com
+  - theguardian.com
+  - rollingstone.com
+  - avclub.com
+  - reddit.com
+  - youtube.com
+  - scmp.com
+  - japantimes.co.jp
+  - channelnewsasia.com
+  - yna.co.kr
+  - intermedia.ru
+  - film.ru
+  - i.ytimg.com
+  - ru.wikipedia.org
+  - en.wikipedia.org
+  - api.graph.org
+  - quickchart.io
+llm:
+  - api.apimart.ai
+  - generativelanguage.googleapis.com
+  - openrouter.ai
+  - api.openai.com
+  - api.groq.com
+  - ai.reqline.ru
+publish:
+  - api.telegram.org
+proxy: []
+loopback:
+  - 127.0.0.1
+  - localhost
+  - "::1"
