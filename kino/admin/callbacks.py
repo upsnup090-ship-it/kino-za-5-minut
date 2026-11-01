@@ -1,8 +1,8 @@
 """Обработка нажатий: `callback_data` → экран.
 
-Схема колбэков — из спецификации §7.4 (`nav:*`, `slot:<id>`, `state:pause`,
-`post:<mode>`). Старые имена (`home`, `schedule`, `runs`) остаются рабочими:
-у владельца в чате висят сообщения со старыми кнопками.
+Главная схема колбэков — новая иерархия меню и раздел автопостинга.
+Старые имена (`home`, `schedule`, `runs`) остаются рабочими только как
+техническая совместимость для старых сообщений в чате.
 """
 
 from __future__ import annotations
@@ -17,6 +17,9 @@ from kino.admin.commands import _err, _handle_slot
 from kino.admin.navigation import _handle_nav, _handle_state
 from kino.admin.posting import handle_post_button
 from kino.admin.screens import (
+    screen_about,
+    screen_autoposting,
+    screen_backup,
     screen_home,
     screen_preview,
     screen_runs,

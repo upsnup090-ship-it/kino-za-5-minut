@@ -12,7 +12,7 @@ from kino.config import Config
 from kino.schedule_db import WEEKDAY_NAMES, ScheduleDb, ScheduleDbError
 
 from kino.admin.common import Reply, _btn
-from kino.admin.screens import screen_home, screen_preview, screen_schedule
+from kino.admin.screens import screen_about, screen_autoposting, screen_backup, screen_home, screen_preview, screen_schedule
 from kino.admin.validation import (
     check_add,
     day_count,
