@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from kino.config import Config
@@ -16,12 +17,30 @@ from kino.schedule_db import WEEKDAY_NAMES, ScheduleDb, ScheduleDbError
 from kino.admin.common import Reply, _btn
 
 
+def _bot_time_line(cfg: Config) -> str:
+    """Возвращает строку с текущим временем бота в часовом поясе Москвы (Europe/Moscow)."""
+    try:
+        tz = ZoneInfo("Europe/Moscow")
+        now = datetime.now(tz)
+        return now.strftime("%d.%m.%Y %H:%M %Z")
+    except Exception:
+        return "не удалось определить"
+
+
 def screen_home(cfg: Config) -> Reply:
-    return Reply(text="👋 Приветствие\n\nВыбери раздел:", keyboard=[
+    lines = [
+        "👋 Приветствие",
+        "",
+        "Выбери раздел. Здесь можно смотреть состояние, расписание, прогоны, логи и бэкапы.",
+        f"Время бота: {_bot_time_line(cfg)}",
+    ]
+    return Reply(text="\n".join(lines), keyboard=[
         [_btn("🤖 Автопостинг ТГ", "nav:autoposting")],
         [_btn("ℹ️ О боте", "nav:about")],
         [_btn("🗄 Бэкап+логи", "nav:backup")],
     ])
+
+
 
 
 def screen_autoposting(cfg: Config) -> Reply:
@@ -31,9 +50,13 @@ def screen_autoposting(cfg: Config) -> Reply:
     if paused:
         lines.append("⏸ ПУБЛИКАЦИИ НА ПАУЗЕ")
     return Reply(text="\n".join(lines), keyboard=[
-        [_btn("📡 Состояние", "nav:state"), _btn("📜 Ошибки", "nav:state:errors")],
-        [_btn("⏸ Пауза публикаций", "state:pause"), _btn("▶️ Запустить сейчас", "nav:runnow")],
-        [_btn("📅 Расписание", "nav:sched"), _btn("🗂 Прогоны", "nav:runs:0")],
+        [_btn("📡 Состояние", "nav:state")],
+        [_btn("📜 Ошибки", "nav:state:errors")],
+        [_btn("⏸ Пауза публикаций", "state:pause")],
+        [_btn("▶️ Запустить сейчас", "nav:runnow")],
+        [_btn("📅 Расписание", "nav:sched")],
+        [_btn("🗂 Прогоны", "nav:runs:0")],
+        [_btn("🔄 Обновить", "nav:autoposting")],
         [_btn("◀️ Назад", "nav:home")],
     ])
 
@@ -43,8 +66,9 @@ def screen_about(cfg: Config) -> Reply:
 
 
 def screen_backup(cfg: Config) -> Reply:
-    return Reply(text="🗄 Бэкап+логи\n\nРаздел для служебных действий с логами и резервными копиями.", keyboard=[
-        [_btn("📜 Логи", "nav:backup:logs"), _btn("💾 Бэкап", "nav:backup:make")],
+    return Reply(text="🗄 Бэкап+логи\n\nСлужебный раздел: логи, резервные копии и проверка состояния хранилища.", keyboard=[
+        [_btn("📜 Логи", "nav:backup:logs")],
+        [_btn("💾 Бэкап", "nav:backup:make")],
         [_btn("◀️ Назад", "nav:home")],
     ])
 
@@ -177,7 +201,7 @@ def screen_runs(cfg: Config) -> Reply:
     available, total = _reserve_stats(cfg)
     lines.append("")
     lines.append(f"Резерв: доступно {available} из {total}")
-    return Reply(text="\n".join(lines), keyboard=[[_btn("◀️ Назад", "nav:autoposting"), _btn("🏠 Домой", "nav:home")]])
+    return Reply(text="\n".join(lines), keyboard=[[_btn("📅 Расписание", "nav:schedule"), _btn("◀️ Назад", "nav:autoposting"), _btn("🏠 Домой", "nav:home")]])
 
 
 def _format_run_line(rec: Any) -> str:

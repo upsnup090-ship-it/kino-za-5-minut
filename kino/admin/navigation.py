@@ -34,7 +34,7 @@ def _handle_nav(cfg: Config, arg: str, now: datetime | None) -> Reply:
         return screen_about(cfg)
     if arg == "backup":
         return screen_backup(cfg)
-    if arg == "sched":
+    if arg in ("sched", "schedule"):
         return screen_schedule(cfg, now)
     if arg == "next7":
         return screen_preview(cfg, now)
@@ -46,12 +46,16 @@ def _handle_nav(cfg: Config, arg: str, now: datetime | None) -> Reply:
         return screen_runs(cfg)
     if arg == "runnow":
         return handle_post_button(cfg, "final", now)
-    if arg in ("state", "state:refresh"):
+    if arg == "state":
+        return screen_state(cfg)
+    if arg == "state:refresh":
         return screen_state(cfg)
     if arg == "state:errors":
         return screen_state_errors(cfg)
-    if arg in ("backup:logs", "backup:make"):
-        return screen_backup(cfg)
+    if arg == "backup:logs":
+        return Reply(text="📜 Логи\n\nРаздел в работе: здесь будут просмотр и выгрузка логов.", keyboard=[[_btn("◀️ Назад", "nav:backup")]])
+    if arg == "backup:make":
+        return Reply(text="💾 Бэкап\n\nРаздел в работе: здесь будет создание резервной копии.", keyboard=[[_btn("◀️ Назад", "nav:backup")]])
     return screen_home(cfg)
 
 

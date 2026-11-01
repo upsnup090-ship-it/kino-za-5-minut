@@ -43,7 +43,9 @@ def _data(reply) -> list[str]:
 def test_home_is_greeting_with_three_buttons(tmp_path):
     reply = screen_home(_cfg(tmp_path))
 
-    assert reply.text == "👋 Приветствие\n\nВыбери раздел:"
+    assert "👋 Приветствие" in reply.text
+    assert "Выбери раздел" in reply.text
+    assert "Время бота:" in reply.text
     assert _data(reply) == ["nav:autoposting", "nav:about", "nav:backup"]
 
 
@@ -80,5 +82,7 @@ def test_backup_opens_backup_screen(tmp_path):
 def test_unknown_nav_returns_home(tmp_path):
     reply = handle_callback(_cfg(tmp_path), "nav:nonsense", _now())
 
-    assert reply.text == "👋 Приветствие\n\nВыбери раздел:"
+    assert "👋 Приветствие" in reply.text
+    assert "Выбери раздел" in reply.text
+    assert "Время бота:" in reply.text
     assert _data(reply) == ["nav:autoposting", "nav:about", "nav:backup"]
