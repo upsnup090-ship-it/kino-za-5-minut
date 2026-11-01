@@ -193,6 +193,17 @@ def _apply_franchise_cooldown(
     return kept if kept else items
 
 
+def _routing_enabled(cfg: Config) -> bool:
+    """Включена ли маршрутизация. Откат — одна строка: `routing.enabled: false`.
+
+    `cfg.routing` — это `formats.yaml: routing` целиком, включая служебные
+    ключи `enabled` и `fallback`. По умолчанию (секции нет) — включено:
+    `load_config` подставляет `DEFAULT_ROUTING`, где `enabled` отсутствует,
+    а отсутствие значит True.
+    """
+    return bool((cfg.routing or {}).get("enabled", True))
+
+
 def _pick_format(weights: dict[str, int], sad_topic: bool) -> str:
     total = sum(weights.values())
     if total <= 0:
@@ -207,6 +218,61 @@ def _pick_format(weights: dict[str, int], sad_topic: bool) -> str:
     if sad_topic and chosen not in _SAD_SAFE:
         return "news"
     return chosen
+
+
+def _pick_format_routed(
+    item: FeedItem,
+    cfg: Config,
+    sad_topic: bool,
+) -> str:
+    """Формат по маршрутизации: классы материала → допущенные → взвешенный выбор.
+
+    Подключение Фазы 4 (docs/source-routing-design.md). Три слоя, все
+    детерминированные и без LLM:
+
+    1. `detect_kinds` — классы материала (априор фида из `cfg.sources` +
+       маркеры в заголовке/сниппете);
+    2. `detect_signals` — дата/числа/спикер/видео;
+    3. `allowed_formats` → `pick_format` — взвешенный рандол внутри
+       допущенных (веса ренормализуются).
+
+    Sad-фильтр применяется **после** маршрута, как и раньше: траурная тема
+    не должна получить `poll`/`riddle`, даже если маршрут их допустил.
+    Фолбэк — `news` (как в `DEFAULT_ROUTING["fallback"]`).
+    """
+    from kino.routing import allowed_formats, detect_kinds, detect_signals, pick_format
+
+    feed_kind = _feed_kind_for(item, cfg)
+    kinds = detect_kinds(item, feed_kind)
+    signals = detect_signals(item)
+    allowed = allowed_formats(kinds, signals, cfg.routing or None)
+    chosen = pick_format(cfg.weights, allowed)
+
+    logger.info(
+        "маршрут: kind=%s сигналы=%s допущено=%s выбран=%s",
+        ",".join(sorted(kinds)),
+        ",".join(sorted(signals)) or "нет",
+        ",".join(allowed),
+        chosen,
+    )
+
+    if sad_topic and chosen not in _SAD_SAFE:
+        logger.info("маршрут: sad-фильтр заменил %s на news", chosen)
+        return "news"
+    return chosen
+
+
+def _feed_kind_for(item: FeedItem, cfg: Config) -> str:
+    """Априорный класс фида по имени источника из `cfg.sources`.
+
+    `FeedItem.source` — это `Source.name` (заполняется в `collect`), а kind
+    живёт только в `cfg.sources`. Неизвестный источник (например, horizon)
+    — `mixed`: классификатор элемента решает сам.
+    """
+    for source in cfg.sources:
+        if source.name == item.source:
+            return source.kind
+    return "mixed"
 
 
 def choose(
@@ -279,7 +345,10 @@ def choose(
     item = random.choice(window)
 
     sad_topic = _contains_phrase(f"{item.title} {item.snippet} {item.link}", cfg.sad)
-    fmt = _pick_format(cfg.weights, sad_topic)
+    if _routing_enabled(cfg):
+        fmt = _pick_format_routed(item, cfg, sad_topic)
+    else:
+        fmt = _pick_format(cfg.weights, sad_topic)
 
     return Choice(
         item=item,
