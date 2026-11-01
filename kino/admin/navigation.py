@@ -52,6 +52,11 @@ def _handle_nav(cfg: Config, arg: str, now: datetime | None) -> Reply:
         return screen_state(cfg)
     if arg == "state:errors":
         return screen_state_errors(cfg)
+    if arg == "stop":
+        # Graceful shutdown request – call sd_notify STOPPING.
+        from kino import notify
+        notify.stopping()
+        return Reply(text="⚠️ Инициирована мягкая остановка. Процесс будет завершён после завершения текущего цикла.", keyboard=[[ _btn("◀️ Назад", "nav:state") ]])
     if arg == "backup:logs":
         return Reply(text="📜 Логи\n\nРаздел в работе: здесь будут просмотр и выгрузка логов.", keyboard=[[_btn("◀️ Назад", "nav:backup")]])
     if arg == "backup:make":

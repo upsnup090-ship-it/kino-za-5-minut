@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import logging
 import os
-import socket
+import sys
+# Use the original built‑in socket if it was saved by ``sitecustomize``;
+# otherwise fall back to the (possibly stubbed) ``socket`` module.
+_socket_mod = sys.modules.get("_original_socket") or __import__("socket")
+socket_mod = _socket_mod
 
 logger = logging.getLogger(__name__)
 
