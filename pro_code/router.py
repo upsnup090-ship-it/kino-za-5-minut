@@ -55,9 +55,25 @@ def handle_message(
     text: str,
     clients_db: ClientsDb | None = None,
     ruch_db: RuchDb | None = None,
+    raw_message: dict | None = None,
 ) -> None:
     """Обработать текстовое сообщение от клиента."""
     cmd = text.strip().lower()
+
+    # --- пересланный пост из канала (только auto) ---
+    if raw_message and plan == "auto" and clients_db:
+        fwd_chat = raw_message.get("forward_from_chat")
+        if fwd_chat and fwd_chat.get("type") == "channel":
+            ch_id = fwd_chat.get("id")
+            ch_title = fwd_chat.get("title", "канал")
+            if ch_id:
+                clients_db.set_auto_channel(user_id, ch_id)
+                send_message(
+                    token, chat_id,
+                    f"✅ **Канал «{ch_title}» (`{ch_id}`) назначен для автопостинга.**\n\n"
+                    "Теперь я буду публиковать авто-посты в этот канал.",
+                )
+                return
 
     # --- команды owner перенаправляем в admin_router ---
     if is_owner:
@@ -119,6 +135,18 @@ def handle_message(
         # Перенаправляем в admin_router
         if clients_db and ruch_db:
             handle_owner_command(token, chat_id, "/menu", clients_db, ruch_db)
+        return
+
+    if cmd == "/auto_channel":
+        if plan != "auto":
+            send_message(token, chat_id, "❌ Автопостинг доступен только по плану **auto**.")
+            return
+        if clients_db:
+            ch = clients_db.get_auto_channel(user_id)
+            if ch:
+                send_message(token, chat_id, f"📢 Текущий канал автопостинга: `{ch}`\n\nЧтобы сменить — перешли пост из нового канала сюда.")
+            else:
+                send_message(token, chat_id, "📢 **Канал автопостинга не назначен.**\n\nПерешли любой пост из твоего канала сюда — я запомню его как канал для автоматических публикаций.")
         return
 
     # --- неизвестная команда ---

@@ -26,14 +26,15 @@ def _ensure_dir() -> None:
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
-    user_id     INTEGER PRIMARY KEY,
-    plan        TEXT    NOT NULL DEFAULT 'free'
-                        CHECK (plan IN ('free', 'auto')),
-    status      TEXT    NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active', 'inactive')),
-    llm_spent   REAL    NOT NULL DEFAULT 0.0,
-    created_at  TEXT    NOT NULL,
-    updated_at  TEXT    NOT NULL
+    user_id         INTEGER PRIMARY KEY,
+    plan            TEXT    NOT NULL DEFAULT 'free'
+                            CHECK (plan IN ('free', 'auto')),
+    status          TEXT    NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active', 'inactive')),
+    llm_spent       REAL    NOT NULL DEFAULT 0.0,
+    auto_channel_id INTEGER,                     -- канал для автопостинга (устанавливает клиент)
+    created_at      TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS bindings (
@@ -127,6 +128,24 @@ class ClientsDb:
             (now, user_id),
         )
         self.conn.commit()
+
+    # --- auto_channel_id (канал для автопостинга) -----------------------------
+
+    def set_auto_channel(self, user_id: int, channel_id: int | None) -> None:
+        """Установить канал автопостинга для клиента. None — сбросить."""
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE clients SET auto_channel_id = ?, updated_at = ? WHERE user_id = ?",
+            (channel_id, now, user_id),
+        )
+        self.conn.commit()
+
+    def get_auto_channel(self, user_id: int) -> int | None:
+        """Вернуть channel_id автопостинга или None."""
+        row = self.conn.execute(
+            "SELECT auto_channel_id FROM clients WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return row["auto_channel_id"] if row else None
 
     def can_use_llm(self, user_id: int) -> bool:
         """Проверка, может ли клиент использовать LLM (не превышен лимит $1)."""

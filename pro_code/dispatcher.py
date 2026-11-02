@@ -137,7 +137,7 @@ def _dispatch_update(
         except Exception:
             pass
 
-        handle_message(token, user_id, plan, is_owner, chat_id, text, clients_db=db, ruch_db=ruch_db)
+        handle_message(token, user_id, plan, is_owner, chat_id, text, clients_db=db, ruch_db=ruch_db, raw_message=message)
         return
 
 
@@ -173,10 +173,13 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                     continue
                 if not client.active:
                     continue
-                if client.channel_chat_id is None:
-                    continue
 
                 user_id = client.user_id
+
+                # Канал автопостинга — из БД (клиент назначает сам)
+                channel_chat_id = db.get_auto_channel(user_id)
+                if channel_chat_id is None:
+                    continue
 
                 # Проверка LLM-лимита
                 if not db.can_use_llm(user_id):
@@ -206,13 +209,13 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                         logger.warning("serve: Kino не загружен, пробуем резерв user_id=%d", user_id)
                         # Пробуем резерв напрямую
                         from pro_code.kino_adapter import _try_reserve
-                        _try_reserve(client.token, client.channel_chat_id, user_id, auto_db)
+                        _try_reserve(client.token, channel_chat_id, user_id, auto_db)
                         continue
 
                     try:
                         result = run_auto_post(
                             client_token=client.token,
-                            channel_chat_id=client.channel_chat_id,
+                            channel_chat_id=channel_chat_id,
                             user_id=user_id,
                             kino_cfg=kino_cfg,
                             auto_db=auto_db,
@@ -277,10 +280,9 @@ def run_dispatcher(cfg: Config) -> None:
     )
     serve_thread.start()
 
-    logger.info(
-        "диспетчер запущен: %d ботов, serve-цикл %s",
+    logger.info("диспетчер запущен: %d ботов, serve-цикл %s",
         len(threads),
-        "активен" if any(c.plan == "auto" and c.channel_chat_id for c in cfg.clients) else "неактивен (нет auto-клиентов с каналом)",
+        "активен" if any(c.plan == "auto" for c in cfg.clients) else "неактивен (нет auto-клиентов)",
     )
 
     # Держим основной поток живым
