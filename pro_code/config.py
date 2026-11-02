@@ -25,6 +25,7 @@ class ClientBot:
     user_id: int          # Telegram ID клиента
     token: str            # токен бота из BotFather
     plan: str             # free | auto
+    channel_chat_id: int | None = None  # ID канала для автопостинга
     active: bool = True   # прошёл ли getMe
 
 
@@ -71,10 +72,14 @@ def load_config() -> Config:
         except ValueError:
             continue
         plan = _detect_plan(user_id)
+        channel_key = f"{CLIENT_PREFIX}{user_id}_CHANNEL"
+        raw_channel = os.environ.get(channel_key, "").strip()
+        channel_chat_id = int(raw_channel) if raw_channel else None
         clients.append(ClientBot(
             user_id=user_id,
             token=value.strip(),
             plan=plan,
+            channel_chat_id=channel_chat_id,
         ))
 
     if not clients:

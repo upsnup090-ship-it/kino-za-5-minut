@@ -12,6 +12,9 @@ from typing import Any
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "clients.db"
 
+#: Лимит LLM-расхода на клиента (долларов США)
+LLM_SPEND_LIMIT = 1.0
+
 
 class ClientsDbError(Exception):
     """Ошибка БД клиентов."""
@@ -28,6 +31,7 @@ CREATE TABLE IF NOT EXISTS clients (
                         CHECK (plan IN ('free', 'auto')),
     status      TEXT    NOT NULL DEFAULT 'active'
                         CHECK (status IN ('active', 'inactive')),
+    llm_spent   REAL    NOT NULL DEFAULT 0.0,
     created_at  TEXT    NOT NULL,
     updated_at  TEXT    NOT NULL
 );
@@ -95,6 +99,39 @@ class ClientsDb:
             (status, now, user_id),
         )
         self.conn.commit()
+
+    # --- LLM spend ----------------------------------------------------------
+
+    def get_llm_spent(self, user_id: int) -> float:
+        """Текущий расход LLM клиента в долларах."""
+        row = self.conn.execute(
+            "SELECT llm_spent FROM clients WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return float(row["llm_spent"]) if row else 0.0
+
+    def add_llm_spend(self, user_id: int, amount: float) -> float:
+        """Добавить расход. Возвращает новый итог."""
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE clients SET llm_spent = llm_spent + ?, updated_at = ? WHERE user_id = ?",
+            (amount, now, user_id),
+        )
+        self.conn.commit()
+        return self.get_llm_spent(user_id)
+
+    def reset_llm_spent(self, user_id: int) -> None:
+        """Обнулить расход (например, после оплаты)."""
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE clients SET llm_spent = 0.0, updated_at = ? WHERE user_id = ?",
+            (now, user_id),
+        )
+        self.conn.commit()
+
+    def can_use_llm(self, user_id: int) -> bool:
+        """Проверка, может ли клиент использовать LLM (не превышен лимит $1)."""
+        spent = self.get_llm_spent(user_id)
+        return spent < LLM_SPEND_LIMIT
 
     # --- bindings -----------------------------------------------------------
 

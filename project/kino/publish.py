@@ -1,4 +1,12 @@
-"""Публикация в Telegram через Bot API."""
+"""Публикация в Telegram через Bot API.
+
+Все функции отправки (*send_photo*, *send_text*, …) и сама `publish` теперь
+принимают опциональные параметры ``bot_token`` и ``channel_chat_id``.
+Если они не переданы — используются глобальные `cfg.bot_token` / `cfg.channel_chat_id`
+(обратная совместимость).
+
+`publish()` принимает эти параметры напрямую.
+"""
 
 from __future__ import annotations
 
@@ -92,8 +100,22 @@ def _retry_after(response: requests.Response, fallback: float) -> float:
         return fallback
 
 
-def _send_with_retry(cfg: Config, method: str, payload: dict) -> bool:
+def _resolve_token(cfg: Config, bot_token: str | None) -> str:
+    """Вернуть bot_token или cfg.bot_token (обратная совместимость)."""
+    return bot_token if bot_token is not None else cfg.bot_token
+
+
+def _send_with_retry(
+    cfg: Config,
+    method: str,
+    payload: dict,
+    *,
+    bot_token: str | None = None,
+) -> bool:
     """Отправка с повторами.
+
+    ``bot_token`` — токен бота-клиента. Если не передан, используется
+    ``cfg.bot_token``.
 
     429 — ждём retry_after от Telegram плюс экспоненциальный хвост.
     Сетевая ошибка — ждём base_delay * (attempt + 1).
@@ -101,11 +123,12 @@ def _send_with_retry(cfg: Config, method: str, payload: dict) -> bool:
     """
     max_attempts = max(1, cfg.settings.retry_max_attempts)
     base_delay = cfg.settings.retry_backoff
+    token = _resolve_token(cfg, bot_token)
 
     for attempt in range(max_attempts):
         try:
             response = http_post(
-                _api_url(cfg.bot_token, method),
+                _api_url(token, method),
                 data=payload,
                 timeout=cfg.settings.telegram_timeout,
                 proxies=_proxies(cfg),
@@ -143,23 +166,36 @@ def _send_with_retry(cfg: Config, method: str, payload: dict) -> bool:
     return False
 
 
-def send_photo(cfg: Config, chat_id: str, image_url: str, caption: str) -> bool:
+def send_photo(
+    cfg: Config,
+    chat_id: str,
+    image_url: str,
+    caption: str,
+    *,
+    bot_token: str | None = None,
+) -> bool:
     payload = {
         "chat_id": chat_id,
         "photo": image_url,
         "caption": caption,
         "parse_mode": cfg.settings.parse_mode,
     }
-    return _send_with_retry(cfg, "sendPhoto", payload)
+    return _send_with_retry(cfg, "sendPhoto", payload, bot_token=bot_token)
 
 
-def send_text(cfg: Config, chat_id: str, text: str) -> bool:
+def send_text(
+    cfg: Config,
+    chat_id: str,
+    text: str,
+    *,
+    bot_token: str | None = None,
+) -> bool:
     payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": cfg.settings.parse_mode,
     }
-    return _send_with_retry(cfg, "sendMessage", payload)
+    return _send_with_retry(cfg, "sendMessage", payload, bot_token=bot_token)
 
 
 def send_link(
@@ -170,6 +206,7 @@ def send_link(
     *,
     large_media: bool = True,
     above_text: bool = False,
+    bot_token: str | None = None,
 ) -> bool:
     """Пост-ссылка с превью (в т.ч. YouTube — превью играет видео)."""
     payload = {
@@ -185,7 +222,7 @@ def send_link(
             }
         ),
     }
-    return _send_with_retry(cfg, "sendMessage", payload)
+    return _send_with_retry(cfg, "sendMessage", payload, bot_token=bot_token)
 
 
 def send_media_group(
@@ -193,6 +230,8 @@ def send_media_group(
     chat_id: str,
     image_urls: list[str],
     caption: str,
+    *,
+    bot_token: str | None = None,
 ) -> bool:
     """Карусель из 2–4 фото, подпись на первом. Больше 4 — Telegram не даст."""
     urls = [u for u in image_urls if u][:4]
@@ -205,7 +244,7 @@ def send_media_group(
         "chat_id": chat_id,
         "media": json.dumps(media, ensure_ascii=False),
     }
-    return _send_with_retry(cfg, "sendMediaGroup", payload)
+    return _send_with_retry(cfg, "sendMediaGroup", payload, bot_token=bot_token)
 
 
 def send_poll(
@@ -213,6 +252,8 @@ def send_poll(
     chat_id: str,
     question: str,
     options: list[str],
+    *,
+    bot_token: str | None = None,
 ) -> bool:
     """Опрос в канале. Боты умеют sendPoll в каналах; анонимное голосование."""
     opts = [o for o in (x.strip() for x in options) if o][:10]
@@ -224,7 +265,7 @@ def send_poll(
         "options": json.dumps(opts, ensure_ascii=False),
         "is_anonymous": True,
     }
-    return _send_with_retry(cfg, "sendPoll", payload)
+    return _send_with_retry(cfg, "sendPoll", payload, bot_token=bot_token)
 
 
 def send_poll_with_caption(
@@ -233,6 +274,8 @@ def send_poll_with_caption(
     caption: str,
     question: str,
     options: list[str],
+    *,
+    bot_token: str | None = None,
 ) -> bool:
     """Опрос вместе с текстом поста.
 
@@ -240,11 +283,11 @@ def send_poll_with_caption(
     сообщением перед ним. Без этого вариация poll теряла всю подпись: в канал
     приходил голый вопрос без заголовка и лида.
     """
-    if caption.strip() and not send_text(cfg, chat_id, caption):
+    if caption.strip() and not send_text(cfg, chat_id, caption, bot_token=bot_token):
         # Текст не ушёл — опрос без него выглядит обрубком, лучше не публиковать.
         logger.warning("poll: текст поста не отправлен, опрос пропущен")
         return False
-    return send_poll(cfg, chat_id, question, options)
+    return send_poll(cfg, chat_id, question, options, bot_token=bot_token)
 
 
 def notify_admin(cfg: Config, text: str) -> None:
@@ -306,8 +349,14 @@ def publish(
     poll_question: str = "",
     poll_options: list[str] | None = None,
     seen_hashes: set[str] | None = None,
+    bot_token: str | None = None,
+    channel_chat_id: str | None = None,
 ) -> bool:
     """Публикация выбранной вариацией: photo | link | gallery | text | poll.
+
+    ``bot_token`` и ``channel_chat_id`` — опциональны. Если не переданы,
+    используются глобальные ``cfg.bot_token`` / ``cfg.channel_chat_id``
+    (обратная совместимость с существующими вызовами).
 
     Порядок фолбэков: выбранная вариация → фото → текст → ЛС админу.
 
@@ -319,9 +368,12 @@ def publish(
         logger.info("dry-run: публикация пропущена")
         return False
     logger.info("публикация: kind=%s", kind)
-    if not cfg.channel_chat_id:
+
+    chat_id = channel_chat_id if channel_chat_id is not None else cfg.channel_chat_id
+    if not chat_id:
         raise PublishError("CHANNEL_CHAT_ID не задан")
-    chat = cfg.channel_chat_id
+    chat = chat_id
+    token = bot_token  # может быть None — _send_with_retry подставит cfg.bot_token
 
     post_hash = _hash_post_content(caption, image_url, kind, link_url)
     if seen_hashes is not None and post_hash in seen_hashes:
@@ -330,25 +382,26 @@ def publish(
 
     sent: bool | None = None
     if kind == "link" and link_url:
-        sent = send_link(cfg, chat, caption, link_url)
+        sent = send_link(cfg, chat, caption, link_url, bot_token=token)
     elif kind == "gallery":
         urls = [image_url] + list(extra_images or [])
-        sent = send_media_group(cfg, chat, urls, caption)
+        sent = send_media_group(cfg, chat, urls, caption, bot_token=token)
     elif kind == "poll":
         # poll_options объявлен как `list[str] | None` (дефолт None), а
         # send_poll перебирает options — None давал TypeError вместо фолбэка
         # на фото/текст. Пустой список безопасен: send_poll вернёт False.
         sent = send_poll_with_caption(
-            cfg, chat, caption, poll_question, poll_options or []
+            cfg, chat, caption, poll_question, poll_options or [],
+            bot_token=token,
         )
     elif kind == "link" and not link_url:
         logger.warning("вариация link без link_url — фолбэк на фото")
 
     if sent:
         return True
-    if image_url and send_photo(cfg, chat, image_url, caption):
+    if image_url and send_photo(cfg, chat, image_url, caption, bot_token=token):
         return True
-    if send_text(cfg, chat, caption):
+    if send_text(cfg, chat, caption, bot_token=token):
         return True
     notify_admin(cfg, "публикация не удалась: ни одна вариация не отбилась")
     return False

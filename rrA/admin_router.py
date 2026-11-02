@@ -19,6 +19,12 @@ from rrA.tokens import parse_token_input, register_token
 
 logger = logging.getLogger(__name__)
 
+#: Команды owner — для маршрутизации
+OWNER_COMMANDS = (
+    "/clients", "/stats", "/backup", "/backups", "/logs",
+    "/register", "/client", "/llm_status", "/reset_llm", "/set_llm_limit",
+)
+
 
 def handle_owner_command(
     token: str,
@@ -54,12 +60,23 @@ def handle_owner_command(
         _show_logs(token, chat_id)
         return
 
-    # Регистрация токена: /register user_id:token
+    # LLM-лимит
+    if cmd.startswith("/llm_status"):
+        _show_llm_status(token, chat_id, clients_db)
+        return
+    if cmd.startswith("/reset_llm "):
+        _reset_llm_cmd(token, chat_id, text[11:], clients_db)
+        return
+    if cmd.startswith("/set_llm_limit "):
+        send_message(token, chat_id, "Лимит фиксирован: $1. Для изменения правь конфиг.")
+        return
+
+    # Регистрация токена
     if cmd.startswith("/register "):
         _register_token_cmd(token, chat_id, text[10:], clients_db)
         return
 
-    # Инфо о клиенте: /client <user_id>
+    # Инфо о клиенте
     if cmd.startswith("/client "):
         _show_client_info(token, chat_id, text[8:], clients_db)
         return
@@ -77,6 +94,8 @@ def _send_main_menu(token: str, chat_id: int) -> None:
         "📜 /logs — просмотр логов\n"
         "📝 /register user_id:token — добавить/сменить токен\n"
         "👤 /client user_id — информация о клиенте\n"
+        "💰 /llm_status — статус LLM-расхода клиентов\n"
+        "🔄 /reset_llm user_id — сбросить LLM-расход клиента\n"
     )
     send_message(token, chat_id, menu)
 
@@ -88,8 +107,9 @@ def _show_clients(token: str, chat_id: int, clients_db: ClientsDb) -> None:
         return
     lines = ["👥 **Клиенты**\n"]
     for c in clients:
+        spent = clients_db.get_llm_spent(c["user_id"])
         lines.append(
-            f"  `{c['user_id']}` | {c.get('plan', 'free')} | {c.get('status', 'active')}"
+            f"  `{c['user_id']}` | {c.get('plan', 'free')} | {c.get('status', 'active')} | ${spent:.4f}"
         )
     send_message(token, chat_id, "\n".join(lines))
 
@@ -147,6 +167,30 @@ def _show_logs(token: str, chat_id: int) -> None:
     send_message(token, chat_id, "\n".join(lines))
 
 
+def _show_llm_status(token: str, chat_id: int, clients_db: ClientsDb) -> None:
+    """Показать статус LLM-расхода по всем клиентам."""
+    clients = list_clients(clients_db)
+    lines = ["💰 **LLM-расход (лимит $1)**\n"]
+    for c in clients:
+        uid = c["user_id"]
+        spent = clients_db.get_llm_spent(uid)
+        can = clients_db.can_use_llm(uid)
+        status_icon = "✅" if can else "❌"
+        lines.append(f"  {status_icon} `{uid}` — ${spent:.4f}")
+    send_message(token, chat_id, "\n".join(lines))
+
+
+def _reset_llm_cmd(token: str, chat_id: int, args: str, clients_db: ClientsDb) -> None:
+    """Сбросить расход LLM для клиента."""
+    try:
+        user_id = int(args.strip())
+    except ValueError:
+        send_message(token, chat_id, "❌ Укажи user_id числом.")
+        return
+    clients_db.reset_llm_spent(user_id)
+    send_message(token, chat_id, f"✅ Расход LLM для `{user_id}` обнулён.")
+
+
 def _register_token_cmd(token: str, chat_id: int, args: str, clients_db: ClientsDb) -> None:
     import os
     parsed = parse_token_input(args)
@@ -181,10 +225,12 @@ def _show_client_info(token: str, chat_id: int, args: str, clients_db: ClientsDb
         return
 
     bindings = get_bindings(clients_db, user_id)
+    spent = clients_db.get_llm_spent(user_id)
     lines = [
         f"👤 **Клиент {user_id}**\n",
         f"План: {client.get('plan', 'free')}",
         f"Статус: {client.get('status', 'active')}",
+        f"LLM-расход: ${spent:.4f} / $1.00",
         f"Привязок: {len(bindings)}",
         "",
         "Привязки:",
