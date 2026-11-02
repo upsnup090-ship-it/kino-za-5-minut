@@ -5,6 +5,8 @@
   - manual_posts — ручные посты (per user)
   - post_stats — статистика постов
   - user_backups — мета-информация о бэкапах пользователя
+  - bindings — привязки чатов/каналов/личек (per user)
+  - post_drafts — состояние диалога ручного постинга (FSM, per user)
 """
 
 from __future__ import annotations
@@ -89,6 +91,31 @@ CREATE TABLE IF NOT EXISTS user_backups (
 );
 
 CREATE INDEX IF NOT EXISTS idx_backup_user ON user_backups(user_id);
+
+CREATE TABLE IF NOT EXISTS bindings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    chat_id     INTEGER NOT NULL,
+    type        TEXT    NOT NULL CHECK (type IN ('chat', 'channel', 'private')),
+    role        TEXT    DEFAULT 'member',
+    added_at    TEXT    NOT NULL,
+    UNIQUE(user_id, chat_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bindings_user ON bindings(user_id);
+
+CREATE TABLE IF NOT EXISTS post_drafts (
+    user_id         INTEGER PRIMARY KEY,
+    state           TEXT    NOT NULL DEFAULT 'idle',
+    channel_chat_id INTEGER,
+    text            TEXT    DEFAULT '',
+    media_type      TEXT    DEFAULT 'text',
+    media_path      TEXT,
+    parse_mode      TEXT    DEFAULT 'HTML',
+    reply_to_msg_id INTEGER,
+    post_id         INTEGER,
+    updated_at      TEXT    NOT NULL
+);
 """
 
 
@@ -96,9 +123,9 @@ class RuchDb:
     """Работа с БД ручного модуля."""
 
     def __init__(self, path: str | Path = DB_PATH) -> None:
-        self.path = path
-        _ensure_dir(path)
-        self.conn = sqlite3.connect(str(path))
+        self.path = Path(path)
+        _ensure_dir(self.path)
+        self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._ensure_schema()
@@ -211,13 +238,55 @@ class RuchDb:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def mark_sent(self, post_id: int, message_id: int) -> None:
+    def mark_sent(self, post_id: int, message_id: int | None = None) -> None:
+        """Отметить пост отправленным. message_id пишется в post_stats.
+
+        Колонки message_id в manual_posts нет (схема зафиксирована baseline),
+        поэтому id сообщения живёт в post_stats — там же, где просмотры.
+        """
         now = self._now()
         self.conn.execute(
             "UPDATE manual_posts SET status = 'sent', sent_at = ? WHERE id = ?",
             (now, post_id),
         )
+        if message_id is not None:
+            row = self.conn.execute(
+                "SELECT user_id FROM manual_posts WHERE id = ?", (post_id,)
+            ).fetchone()
+            if row:
+                self.conn.execute(
+                    "INSERT INTO post_stats (post_id, user_id, message_id, views, "
+                    "forwards, reactions, created_at) VALUES (?, ?, ?, 0, 0, '[]', ?)",
+                    (post_id, row["user_id"], message_id, now),
+                )
         self.conn.commit()
+
+    def mark_failed(self, post_id: int, reason: str = "") -> None:
+        """Отметить пост как неотправленный."""
+        self.conn.execute(
+            "UPDATE manual_posts SET status = 'failed' WHERE id = ?", (post_id,)
+        )
+        self.conn.commit()
+
+    def get_post(self, post_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM manual_posts WHERE id = ?", (post_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_post(self, post_id: int) -> bool:
+        cur = self.conn.execute("DELETE FROM manual_posts WHERE id = ?", (post_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_message_id(self, post_id: int) -> int | None:
+        """id сообщения в Telegram для поста (из post_stats)."""
+        row = self.conn.execute(
+            "SELECT message_id FROM post_stats WHERE post_id = ? AND message_id IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (post_id,),
+        ).fetchone()
+        return row["message_id"] if row else None
 
     # --- Post stats ---------------------------------------------------------
 
@@ -281,19 +350,34 @@ class RuchDb:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def clean_old_backups(self, user_id: int, keep: int = 2) -> None:
-        """Удаляет старые бэкапы пользователя, оставляя keep последних."""
+    def clean_old_backups(
+        self, user_id: int, keep: int = 2, backup_dir: Path | None = None
+    ) -> None:
+        """Удаляет старые бэкапы пользователя, оставляя keep последних.
+
+        ``backup_dir`` — каталог, где лежат файлы (боевой путь или явный).
+        Без него — ``user_backups`` рядом с БД.
+        """
         rows = self.conn.execute(
-            "SELECT id, filename FROM user_backups WHERE user_id = ? ORDER BY created_at DESC",
+            "SELECT id, filename FROM user_backups WHERE user_id = ? ORDER BY created_at DESC, id DESC",
             (user_id,),
         ).fetchall()
         if len(rows) <= keep:
             return
+        candidates = [
+            backup_dir,
+            Path(self.path).parent / "user_backups",
+            Path(__file__).resolve().parents[1] / "data" / "user_backups",
+        ]
         for row in rows[keep:]:
             self.conn.execute("DELETE FROM user_backups WHERE id = ?", (row["id"],))
-            fpath = Path(self.path).parent / "user_backups" / row["filename"]
-            if fpath.exists():
-                fpath.unlink()
+            for base in candidates:
+                if base is None:
+                    continue
+                fpath = base / row["filename"]
+                if fpath.exists():
+                    fpath.unlink()
+                    break
         self.conn.commit()
 
     # --- Bindings (дублируются из clients.db для быстрого доступа) ----------
@@ -301,13 +385,79 @@ class RuchDb:
     def save_binding(
         self, user_id: int, chat_id: int, type_: str, role: str = "member"
     ) -> None:
+        """Сохранить привязку. Повтор по (user_id, chat_id) — no-op.
+
+        Не ``INSERT OR IGNORE``: тот глотает и нарушение CHECK по type,
+        и дубль. Здесь дубль гасится ON CONFLICT, а неверный тип падает.
+        """
         now = self._now()
         self.conn.execute(
-            """INSERT OR IGNORE INTO bindings
+            """INSERT INTO bindings
                (user_id, chat_id, type, role, added_at)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, chat_id) DO NOTHING""",
             (user_id, chat_id, type_, role, now),
         )
+        self.conn.commit()
+
+    def list_bindings(self, user_id: int) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM bindings WHERE user_id = ? ORDER BY added_at",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Post drafts (FSM ручного постинга) ---------------------------------
+
+    def get_draft(self, user_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM post_drafts WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def save_draft(self, user_id: int, **fields: Any) -> None:
+        """Сохранить состояние диалога. Поля: state, channel_chat_id, text,
+        media_type, media_path, parse_mode, reply_to_msg_id, post_id."""
+        now = self._now()
+        allowed = (
+            "state", "channel_chat_id", "text", "media_type", "media_path",
+            "parse_mode", "reply_to_msg_id", "post_id",
+        )
+        current = self.get_draft(user_id) or {}
+        merged = {k: fields.get(k, current.get(k)) for k in allowed}
+        self.conn.execute(
+            """INSERT INTO post_drafts
+               (user_id, state, channel_chat_id, text, media_type, media_path,
+                parse_mode, reply_to_msg_id, post_id, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   state=excluded.state,
+                   channel_chat_id=excluded.channel_chat_id,
+                   text=excluded.text,
+                   media_type=excluded.media_type,
+                   media_path=excluded.media_path,
+                   parse_mode=excluded.parse_mode,
+                   reply_to_msg_id=excluded.reply_to_msg_id,
+                   post_id=excluded.post_id,
+                   updated_at=excluded.updated_at""",
+            (
+                user_id,
+                merged.get("state") or "idle",
+                merged.get("channel_chat_id"),
+                merged.get("text") or "",
+                merged.get("media_type") or "text",
+                merged.get("media_path"),
+                merged.get("parse_mode") or "HTML",
+                merged.get("reply_to_msg_id"),
+                merged.get("post_id"),
+                now,
+            ),
+        )
+        self.conn.commit()
+
+    def clear_draft(self, user_id: int) -> None:
+        self.conn.execute("DELETE FROM post_drafts WHERE user_id = ?", (user_id,))
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()

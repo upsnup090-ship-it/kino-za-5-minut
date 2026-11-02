@@ -1,11 +1,19 @@
-"""Повторяющиеся сообщения — управление расписанием."""
+"""Повторяющиеся сообщения — управление расписанием.
+
+Время в БД (``time``, ``start_date``, ``end_date``) задано в зоне клиента
+(``RuchConfig.timezone``, по умолчанию Europe/Moscow), а не в UTC. Раньше
+``get_due_messages`` сравнивал с ``datetime.now(timezone.utc)`` — сообщение
+на 09:00 уходило в 12:00 по Москве.
+"""
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from project_ruch.config import RuchConfig
 from project_ruch.ruch_db import RuchDb
 
 logger = logging.getLogger(__name__)
@@ -57,40 +65,92 @@ def delete_repeating(db: RuchDb, msg_id: int) -> bool:
     return db.delete_repeating(msg_id)
 
 
-def get_due_messages(db: RuchDb, user_id: int) -> list[dict[str, Any]]:
+def _parse_date(raw: str | None) -> date | None:
+    """Дата из БД: YYYY-MM-DD или ISO-строка. None — если пусто/битая."""
+    if not raw:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        logger.warning("не разобрал дату %r, считаю отсутствующей", raw)
+        return None
+
+
+def _parse_time(raw: str | None) -> str | None:
+    """Время из БД в HH:MM. Принимает HH:MM и HH:MM:SS."""
+    if not raw:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _split_days(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [d.strip() for d in raw.split(",") if d.strip()]
+
+
+def get_due_messages(
+    db: RuchDb,
+    user_id: int,
+    now: datetime | None = None,
+    tz: ZoneInfo | None = None,
+) -> list[dict[str, Any]]:
     """Сообщения, которые нужно отправить сейчас (по расписанию).
 
-    Проверяет время, день недели, день месяца, даты начала/окончания.
-    """
-    now = datetime.now(timezone.utc)
-    current_time = now.strftime("%H:%M")
-    current_weekday = str(now.weekday())  # 0=пн
-    current_day = str(now.day)
+    ``now`` — момент проверки (тесты); по умолчанию текущее время.
+    ``tz`` — зона клиента; по умолчанию из RuchConfig.
 
-    messages = db.list_repeating(user_id)
+    Проверяет время, день недели, день месяца, даты начала/окончания.
+    Всё считается в зоне клиента, а не в UTC.
+    """
+    zone = tz or RuchConfig().timezone
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    local = moment.astimezone(zone)
+
+    current_time = local.strftime("%H:%M")
+    current_weekday = str(local.weekday())  # 0=пн
+    current_day = str(local.day)
+    today = local.date()
+
     due = []
-    for msg in messages:
+    for msg in db.list_repeating(user_id):
         if not msg["enabled"]:
             continue
-        if msg["start_date"] and now.isoformat() < msg["start_date"]:
+
+        start = _parse_date(msg.get("start_date"))
+        if start and today < start:
             continue
-        if msg["end_date"] and now.isoformat() > msg["end_date"]:
+        end = _parse_date(msg.get("end_date"))
+        if end and today > end:
             continue
 
-        # Проверка дня недели
-        if msg["days_week"]:
-            days = [d.strip() for d in msg["days_week"].split(",")]
-            if current_weekday not in days:
-                continue
+        days_week = _split_days(msg.get("days_week"))
+        if days_week and current_weekday not in days_week:
+            continue
 
-        # Проверка дня месяца
-        if msg["days_month"]:
-            days = [d.strip() for d in msg["days_month"].split(",")]
-            if current_day not in days:
-                continue
+        days_month = _split_days(msg.get("days_month"))
+        if days_month and current_day not in days_month:
+            continue
 
-        # Проверка времени (HH:MM)
-        if msg["time"] == current_time:
+        if _parse_time(msg.get("time")) == current_time:
             due.append(msg)
 
     return due

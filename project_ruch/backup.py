@@ -95,14 +95,18 @@ def generate_user_backup(
     user_id: int,
     bindings: list[dict[str, Any]],
     fmt: str = "csv",
+    backup_dir: Path | None = None,
 ) -> str | None:
-    """Генерирует бэкап пользователя. Возвращает имя файла или None."""
+    """Генерирует бэкап пользователя. Возвращает имя файла или None.
+
+    ``backup_dir`` — явный каталог (тесты); по умолчанию из RuchConfig.
+    """
     fmt = fmt.lower()
     if fmt not in ("csv", "txt"):
         fmt = "csv"
 
-    cfg = RuchConfig()
-    backup_dir = cfg.user_backup_dir
+    if backup_dir is None:
+        backup_dir = RuchConfig().user_backup_dir
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     # Собираем данные
@@ -131,8 +135,10 @@ def generate_user_backup(
 
     content = "\n".join(content_parts)
 
-    # Сохраняем файл
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # Сохраняем файл. Метка времени — с микросекундами: два бэкапа в одну
+    # секунду не должны перезаписывать друг друга (иначе clean_old_backups
+    # удаляет единственный файл вместе с «старыми» записями меты).
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     filename = f"backup_user_{user_id}_{timestamp}.{ext}"
     filepath = backup_dir / filename
     filepath.write_text(content, encoding="utf-8")
@@ -141,6 +147,6 @@ def generate_user_backup(
     db.save_backup_meta(user_id, filename, fmt, filepath.stat().st_size)
 
     # Чистим старые (оставляем 2 последних)
-    db.clean_old_backups(user_id, keep=2)
+    db.clean_old_backups(user_id, keep=2, backup_dir=backup_dir)
 
     return filename

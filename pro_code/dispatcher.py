@@ -114,7 +114,16 @@ def _dispatch_update(
         data = str(callback.get("data", ""))
         if chat_id:
             answer_callback(token, cb_id)
-            # TODO: обработка кнопок
+            # Кнопки ручного постинга: cb:<действие>
+            if data.startswith("cb:") and ruch_db and db:
+                action = data[3:]
+                try:
+                    handle_message(
+                        token, user_id, plan, is_owner, chat_id, action,
+                        clients_db=db, ruch_db=ruch_db,
+                    )
+                except Exception as exc:
+                    logger.exception("callback %s не обработан: %s", data, exc)
         return
 
     if message:

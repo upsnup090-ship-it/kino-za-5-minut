@@ -12,6 +12,7 @@ from typing import Any
 from pro_code.clients_db import ClientsDb
 from pro_code.tg_api import send_message
 from pro_code.info import ABOUT_TEXT, FAQ_TEXT
+from project_ruch import dialog as manual_dialog
 from project_ruch.ruch_db import RuchDb
 from rrA.admin_router import handle_owner_command
 
@@ -20,7 +21,6 @@ logger = logging.getLogger(__name__)
 #: Заглушки для модулей (пока не реализованы)
 MODULES_PLACEHOLDER = {
     "repeating": "🔁 **Повторяющиеся сообщения**\n\nРаздел в разработке.",
-    "manual": "✍️ **Ручной постинг**\n\nРаздел в разработке.\n\n📢 `/channels` — управление каналами и чатами",
     "stats": "📊 **Статистика**\n\nРаздел в разработке.",
     "backup": "💾 **Бэкап**\n\nРаздел в разработке.",
     "autoposting": "🤖 **Автопостинг**\n\nДоступно по плану **auto**.\n\nРаздел в разработке.\n\n📢 `/channels` — управление каналами и чатами",
@@ -171,6 +171,13 @@ def handle_message(
         if _handle_forwarded_message(token, chat_id, user_id, plan, raw_message, clients_db):
             return
 
+    # --- диалог ручного постинга (поглощает сообщение, если он активен) ---
+    if ruch_db and clients_db:
+        if manual_dialog.handle(
+            token, chat_id, user_id, text, clients_db, ruch_db, raw_message=raw_message
+        ):
+            return
+
     # --- команды owner перенаправляем в admin_router ---
     if is_owner:
         owner_cmds = ("/clients", "/stats", "/backup", "/backups", "/logs", "/register", "/client")
@@ -317,8 +324,11 @@ def handle_message(
     if cmd in ("🔁 повторяющиеся", "повторяющиеся", "repeating"):
         send_message(token, chat_id, MODULES_PLACEHOLDER["repeating"])
         return
-    if cmd in ("✍️ ручной постинг", "ручной постинг", "manual", "✍️"):
-        send_message(token, chat_id, MODULES_PLACEHOLDER["manual"])
+    if cmd in ("✍️ ручной постинг", "ручной постинг", "manual", "✍️", "/post"):
+        if clients_db and ruch_db:
+            manual_dialog.start(token, chat_id, user_id, clients_db, ruch_db)
+        else:
+            send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
         return
     if cmd in ("📊 статистика", "статистика", "stats", "📊"):
         send_message(token, chat_id, MODULES_PLACEHOLDER["stats"])
