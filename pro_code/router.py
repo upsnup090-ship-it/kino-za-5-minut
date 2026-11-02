@@ -34,6 +34,7 @@ def build_main_menu(plan: str, is_owner: bool = False) -> str:
     lines.append("🔁 Повторяющиеся сообщения")
     lines.append("✍️ Ручной постинг")
     lines.append("📊 Статистика")
+    lines.append("📢 Мои каналы")
     lines.append("ℹ️ Инфо")
     if plan == "auto":
         lines.append("🤖 Автопостинг (auto)")
@@ -44,6 +45,101 @@ def build_main_menu(plan: str, is_owner: bool = False) -> str:
     lines.append("")
     lines.append("⚙️ Настройки")
     return "\n".join(lines)
+
+
+def _handle_forwarded_message(
+    token: str,
+    chat_id: int,
+    user_id: int,
+    plan: str,
+    raw_message: dict,
+    clients_db: ClientsDb,
+) -> bool:
+    """Обработать пересланное сообщение из канала/чата.
+
+    Возвращает True, если сообщение было пересланным и обработано.
+    """
+    fwd_chat = raw_message.get("forward_from_chat")
+    if not fwd_chat:
+        return False
+
+    ch_id = fwd_chat.get("id")
+    ch_type = fwd_chat.get("type", "channel")
+    ch_title = fwd_chat.get("title", "чат/канал")
+
+    if not ch_id:
+        return False
+
+    # Приводим тип
+    type_map = {"channel": "channel", "supergroup": "chat", "group": "chat"}
+    chat_type = type_map.get(ch_type, ch_type)
+
+    # Проверяем, есть ли уже такой канал
+    existing = clients_db.get_channel(user_id, ch_id)
+
+    if existing:
+        # Уже есть — показываем назначение и предлагаем сменить
+        purpose_emoji = {"auto": "🤖", "manual": "✍️", "both": "🤖✍️"}
+        emoji = purpose_emoji.get(existing["purpose"], "❓")
+        send_message(
+            token, chat_id,
+            f"📢 **Канал «{ch_title}» (`{ch_id}`)** уже добавлен "
+            f"({emoji} {existing['purpose']}).\n\n"
+            "Чтобы сменить назначение — отправь:\n"
+            f"`/channel_purpose {ch_id} auto`\n"
+            f"`/channel_purpose {ch_id} manual`\n"
+            f"`/channel_purpose {ch_id} both`\n\n"
+            "Чтобы удалить — `/remove_channel {ch_id}`",
+        )
+        return True
+
+    # Новый канал — спрашиваем назначение
+    # Если план auto — предлагаем и авто, и ручной
+    if plan == "auto":
+        send_message(
+            token, chat_id,
+            f"📢 **Обнаружен канал «{ch_title}» (`{ch_id}`)**\n\n"
+            "Для чего его использовать?\n\n"
+            f"📍 `/add_auto {ch_id}` — для автопостинга (🤖)\n"
+            f"📍 `/add_manual {ch_id}` — для ручного постинга (✍️)\n"
+            f"📍 `/add_both {ch_id}` — для обоих",
+        )
+    else:
+        # Free — только ручной
+        clients_db.add_channel(user_id, ch_id, ch_title, chat_type, purpose="manual")
+        # Также устанавливаем как auto_channel если free? Нет, только manual
+        send_message(
+            token, chat_id,
+            f"✅ **Канал «{ch_title}» (`{ch_id}`)** добавлен для **ручного постинга** (✍️).\n\n"
+            "Теперь ты можешь создавать посты в этот канал.",
+        )
+
+    return True
+
+
+def _show_channels(token: str, chat_id: int, user_id: int, clients_db: ClientsDb) -> None:
+    """Показать список каналов/чатов клиента."""
+    channels = clients_db.list_channels(user_id)
+    if not channels:
+        send_message(
+            token, chat_id,
+            "📢 **У тебя пока нет добавленных каналов.**\n\n"
+            "Перешли любой пост из своего канала/чата сюда — я запомню его.\n\n"
+            "После этого ты сможешь создавать посты в этот канал.",
+        )
+        return
+
+    purpose_emoji = {"auto": "🤖", "manual": "✍️", "both": "🤖✍️"}
+    lines = ["📢 **Мои каналы**\n"]
+    for ch in channels:
+        emoji = purpose_emoji.get(ch["purpose"], "❓")
+        title = ch["title"] or f"чат {ch['chat_id']}"
+        lines.append(f"{emoji} `{ch['chat_id']}` — {title} ({ch['purpose']})")
+    lines.append("")
+    lines.append("ℹ️ Чтобы добавить — перешли пост из канала сюда.")
+    lines.append("🗑 Чтобы удалить — `/remove_channel {chat_id}`")
+    lines.append("🔄 Чтобы сменить — `/channel_purpose {chat_id} auto|manual|both`")
+    send_message(token, chat_id, "\n".join(lines))
 
 
 def handle_message(
@@ -60,24 +156,13 @@ def handle_message(
     """Обработать текстовое сообщение от клиента."""
     cmd = text.strip().lower()
 
-    # --- пересланный пост из канала (только auto) ---
-    if raw_message and plan == "auto" and clients_db:
-        fwd_chat = raw_message.get("forward_from_chat")
-        if fwd_chat and fwd_chat.get("type") == "channel":
-            ch_id = fwd_chat.get("id")
-            ch_title = fwd_chat.get("title", "канал")
-            if ch_id:
-                clients_db.set_auto_channel(user_id, ch_id)
-                send_message(
-                    token, chat_id,
-                    f"✅ **Канал «{ch_title}» (`{ch_id}`) назначен для автопостинга.**\n\n"
-                    "Теперь я буду публиковать авто-посты в этот канал.",
-                )
-                return
+    # --- пересланное сообщение из канала/чата ---
+    if raw_message and clients_db:
+        if _handle_forwarded_message(token, chat_id, user_id, plan, raw_message, clients_db):
+            return
 
     # --- команды owner перенаправляем в admin_router ---
     if is_owner:
-        # Проверяем, не обычная ли это команда из меню
         owner_cmds = ("/clients", "/stats", "/backup", "/backups", "/logs", "/register", "/client")
         if any(cmd.startswith(c) for c in owner_cmds) or cmd in ("/start", "/menu", "/help"):
             if clients_db and ruch_db:
@@ -106,6 +191,118 @@ def handle_message(
         send_message(token, chat_id, FAQ_TEXT)
         return
 
+    # --- управление каналами ---
+    if cmd in ("📢 мои каналы", "мои каналы", "/channels", "📢"):
+        if clients_db:
+            _show_channels(token, chat_id, user_id, clients_db)
+        return
+
+    if cmd.startswith("/add_auto ") and clients_db:
+        # /add_auto <chat_id>
+        args = cmd[10:].strip()
+        try:
+            ch_id = int(args)
+        except ValueError:
+            send_message(token, chat_id, "❌ Укажи ID канала числом.")
+            return
+        # Берём из БД если уже был добавлен через пересылку, иначе создаём
+        existing = clients_db.get_channel(user_id, ch_id)
+        if existing:
+            clients_db.set_channel_purpose(user_id, ch_id, "auto")
+        else:
+            clients_db.add_channel(user_id, ch_id, "", "channel", purpose="auto")
+        # Также обновляем auto_channel_id
+        clients_db.set_auto_channel(user_id, ch_id)
+        send_message(token, chat_id, f"✅ Канал `{ch_id}` назначен для **автопостинга** (🤖).")
+        return
+
+    if cmd.startswith("/add_manual ") and clients_db:
+        args = cmd[12:].strip()
+        try:
+            ch_id = int(args)
+        except ValueError:
+            send_message(token, chat_id, "❌ Укажи ID канала числом.")
+            return
+        existing = clients_db.get_channel(user_id, ch_id)
+        if existing:
+            clients_db.set_channel_purpose(user_id, ch_id, "manual")
+        else:
+            clients_db.add_channel(user_id, ch_id, "", "channel", purpose="manual")
+        send_message(token, chat_id, f"✅ Канал `{ch_id}` назначен для **ручного постинга** (✍️).")
+        return
+
+    if cmd.startswith("/add_both ") and clients_db:
+        args = cmd[10:].strip()
+        try:
+            ch_id = int(args)
+        except ValueError:
+            send_message(token, chat_id, "❌ Укажи ID канала числом.")
+            return
+        existing = clients_db.get_channel(user_id, ch_id)
+        if existing:
+            clients_db.set_channel_purpose(user_id, ch_id, "both")
+        else:
+            clients_db.add_channel(user_id, ch_id, "", "channel", purpose="both")
+        clients_db.set_auto_channel(user_id, ch_id)
+        send_message(token, chat_id, f"✅ Канал `{ch_id}` назначен для **авто и ручного постинга** (🤖✍️).")
+        return
+
+    if cmd.startswith("/remove_channel ") and clients_db:
+        args = cmd[16:].strip()
+        try:
+            ch_id = int(args)
+        except ValueError:
+            send_message(token, chat_id, "❌ Укажи ID канала числом.")
+            return
+        if clients_db.remove_channel(user_id, ch_id):
+            # Если это был auto_channel — сбрасываем
+            if clients_db.get_auto_channel(user_id) == ch_id:
+                clients_db.set_auto_channel(user_id, None)
+            send_message(token, chat_id, f"🗑 Канал `{ch_id}` удалён.")
+        else:
+            send_message(token, chat_id, f"❌ Канал `{ch_id}` не найден.")
+        return
+
+    if cmd.startswith("/channel_purpose ") and clients_db:
+        # /channel_purpose <chat_id> auto|manual|both
+        args = cmd[17:].strip()
+        parts = args.split(None, 1)
+        if len(parts) < 2:
+            send_message(token, chat_id, "❌ Формат: `/channel_purpose {chat_id} auto|manual|both`")
+            return
+        try:
+            ch_id = int(parts[0])
+        except ValueError:
+            send_message(token, chat_id, "❌ ID канала должен быть числом.")
+            return
+        purpose = parts[1].strip().lower()
+        if purpose not in ("auto", "manual", "both"):
+            send_message(token, chat_id, "❌ Назначение: auto | manual | both")
+            return
+        if clients_db.set_channel_purpose(user_id, ch_id, purpose):
+            if purpose in ("auto", "both"):
+                clients_db.set_auto_channel(user_id, ch_id)
+            send_message(token, chat_id, f"✅ Назначение канала `{ch_id}` изменено на **{purpose}**.")
+        else:
+            send_message(token, chat_id, f"❌ Канал `{ch_id}` не найден. Перешли пост из него сначала.")
+        return
+
+    if cmd == "/auto_channel":
+        if plan != "auto":
+            send_message(token, chat_id, "❌ Автопостинг доступен только по плану **auto**.")
+            return
+        if clients_db:
+            ch = clients_db.get_auto_channel(user_id)
+            if ch:
+                send_message(token, chat_id, f"🤖 **Канал автопостинга:** `{ch}`\n\n"
+                    "Перешли пост из другого канала чтобы сменить, "
+                    "или используй `/channels` для управления.")
+            else:
+                send_message(token, chat_id, "🤖 **Канал автопостинга не назначен.**\n\n"
+                    "Перешли любой пост из твоего канала сюда — "
+                    "или `/add_auto {chat_id}` если знаешь ID.")
+        return
+
     # --- модули-заглушки ---
     if cmd in ("🔁 повторяющиеся", "повторяющиеся", "repeating"):
         send_message(token, chat_id, MODULES_PLACEHOLDER["repeating"])
@@ -132,21 +329,8 @@ def handle_message(
         if not is_owner:
             send_message(token, chat_id, "❌ Нет доступа.")
             return
-        # Перенаправляем в admin_router
         if clients_db and ruch_db:
             handle_owner_command(token, chat_id, "/menu", clients_db, ruch_db)
-        return
-
-    if cmd == "/auto_channel":
-        if plan != "auto":
-            send_message(token, chat_id, "❌ Автопостинг доступен только по плану **auto**.")
-            return
-        if clients_db:
-            ch = clients_db.get_auto_channel(user_id)
-            if ch:
-                send_message(token, chat_id, f"📢 Текущий канал автопостинга: `{ch}`\n\nЧтобы сменить — перешли пост из нового канала сюда.")
-            else:
-                send_message(token, chat_id, "📢 **Канал автопостинга не назначен.**\n\nПерешли любой пост из твоего канала сюда — я запомню его как канал для автоматических публикаций.")
         return
 
     # --- неизвестная команда ---
@@ -158,8 +342,6 @@ def handle_message(
 
 def handle_no_token(chat_id: int, token: str | None = None) -> None:
     """Ответ бота клиенту без токена (не активирован)."""
-    # Если токена нет — отправить нечем (бота не существует)
-    # Если бот есть, но клиент не привязан — отправляем отказ+инфо
     if token:
         send_message(
             token, chat_id,

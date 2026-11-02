@@ -176,17 +176,17 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
 
                 user_id = client.user_id
 
-                # Канал автопостинга — из БД (клиент назначает сам)
-                channel_chat_id = db.get_auto_channel(user_id)
-                if channel_chat_id is None:
-                    continue
-
                 # Проверка LLM-лимита
                 if not db.can_use_llm(user_id):
                     continue
 
                 # Проверка паузы
                 if auto_db.is_paused(user_id):
+                    continue
+
+                # Каналы автопостинга — все с purpose auto/both
+                auto_channels = db.list_channels(user_id, purpose="auto")
+                if not auto_channels:
                     continue
 
                 # Проверяем слоты
@@ -202,28 +202,31 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                     if auto_db.slot_done(user_id, slot["id"], slot_at):
                         continue
 
-                    # Запуск поста
-                    logger.info("serve: user_id=%d, слот %s %s", user_id, slot["weekday"], slot["time"])
+                    # Запуск поста — в каждый канал
+                    logger.info("serve: user_id=%d, слот %s %s, каналов: %d",
+                                user_id, slot["weekday"], slot["time"], len(auto_channels))
 
-                    if kino_cfg is None:
-                        logger.warning("serve: Kino не загружен, пробуем резерв user_id=%d", user_id)
-                        # Пробуем резерв напрямую
-                        from pro_code.kino_adapter import _try_reserve
-                        _try_reserve(client.token, channel_chat_id, user_id, auto_db)
-                        continue
+                    for ch in auto_channels:
+                        channel_chat_id = ch["chat_id"]
+                        try:
+                            if kino_cfg is None:
+                                logger.warning("serve: Kino не загружен, пробуем резерв user_id=%d", user_id)
+                                from pro_code.kino_adapter import _try_reserve
+                                _try_reserve(client.token, channel_chat_id, user_id, auto_db)
+                                continue
 
-                    try:
-                        result = run_auto_post(
-                            client_token=client.token,
-                            channel_chat_id=channel_chat_id,
-                            user_id=user_id,
-                            kino_cfg=kino_cfg,
-                            auto_db=auto_db,
-                        )
-                        if result.get("published"):
-                            db.add_llm_spend(user_id, LLM_COST_PER_RUN)
-                    except Exception as exc:
-                        logger.exception("serve: ошибка публикации user_id=%d: %s", user_id, exc)
+                            result = run_auto_post(
+                                client_token=client.token,
+                                channel_chat_id=channel_chat_id,
+                                user_id=user_id,
+                                kino_cfg=kino_cfg,
+                                auto_db=auto_db,
+                            )
+                            if result.get("published"):
+                                db.add_llm_spend(user_id, LLM_COST_PER_RUN)
+                        except Exception as exc:
+                            logger.exception("serve: ошибка публикации user_id=%d, канал %s: %s",
+                                             user_id, channel_chat_id, exc)
 
                 # --- LLM-лимит — уведомление ---
                 if not db.can_use_llm(user_id):
