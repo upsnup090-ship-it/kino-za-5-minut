@@ -55,7 +55,11 @@ def _handle_forwarded_message(
     raw_message: dict,
     clients_db: ClientsDb,
 ) -> bool:
-    """Обработать пересланное сообщение из канала/чата.
+    """Обработать пересланное сообщение из канала/чата/группы.
+
+    Работает одинаково для free и auto:
+      — канал (channel) → можно публиковать посты
+      — супергруппа/группа (supergroup/group) → можно отправлять сообщения
 
     Возвращает True, если сообщение было пересланным и обработано.
     """
@@ -70,20 +74,25 @@ def _handle_forwarded_message(
     if not ch_id:
         return False
 
-    # Приводим тип
-    type_map = {"channel": "channel", "supergroup": "chat", "group": "chat"}
+    # Приводим тип к нашим константам
+    type_map = {"channel": "channel", "supergroup": "supergroup", "group": "chat"}
     chat_type = type_map.get(ch_type, ch_type)
 
-    # Проверяем, есть ли уже такой канал
+    # Человеческое название типа
+    type_label = {
+        "channel": "📢 канал",
+        "supergroup": "👥 группа",
+        "chat": "👥 группа",
+    }.get(chat_type, ch_type)
+
     existing = clients_db.get_channel(user_id, ch_id)
 
     if existing:
-        # Уже есть — показываем назначение и предлагаем сменить
         purpose_emoji = {"auto": "🤖", "manual": "✍️", "both": "🤖✍️"}
         emoji = purpose_emoji.get(existing["purpose"], "❓")
         send_message(
             token, chat_id,
-            f"📢 **Канал «{ch_title}» (`{ch_id}`)** уже добавлен "
+            f"📢 **{type_label} «{ch_title}» (`{ch_id}`)** уже добавлен "
             f"({emoji} {existing['purpose']}).\n\n"
             "Чтобы сменить назначение — отправь:\n"
             f"`/channel_purpose {ch_id} auto`\n"
@@ -93,25 +102,25 @@ def _handle_forwarded_message(
         )
         return True
 
-    # Новый канал — спрашиваем назначение
-    # Если план auto — предлагаем и авто, и ручной
+    # Новый чат — определяем доступные назначения
+    # auto: auto/manual/both; free: только manual
     if plan == "auto":
         send_message(
             token, chat_id,
-            f"📢 **Обнаружен канал «{ch_title}» (`{ch_id}`)**\n\n"
+            f"📢 **Обнаружен {type_label} «{ch_title}» (`{ch_id}`)**\n\n"
             "Для чего его использовать?\n\n"
             f"📍 `/add_auto {ch_id}` — для автопостинга (🤖)\n"
             f"📍 `/add_manual {ch_id}` — для ручного постинга (✍️)\n"
             f"📍 `/add_both {ch_id}` — для обоих",
         )
     else:
-        # Free — только ручной
+        # free — только ручной
         clients_db.add_channel(user_id, ch_id, ch_title, chat_type, purpose="manual")
-        # Также устанавливаем как auto_channel если free? Нет, только manual
         send_message(
             token, chat_id,
-            f"✅ **Канал «{ch_title}» (`{ch_id}`)** добавлен для **ручного постинга** (✍️).\n\n"
-            "Теперь ты можешь создавать посты в этот канал.",
+            f"✅ **{type_label} «{ch_title}» (`{ch_id}`)** добавлен для "
+            f"**ручного постинга** (✍️).\n\n"
+            "Теперь ты можешь создавать посты в этот чат/канал.",
         )
 
     return True
@@ -123,20 +132,22 @@ def _show_channels(token: str, chat_id: int, user_id: int, clients_db: ClientsDb
     if not channels:
         send_message(
             token, chat_id,
-            "📢 **У тебя пока нет добавленных каналов.**\n\n"
-            "Перешли любой пост из своего канала/чата сюда — я запомню его.\n\n"
-            "После этого ты сможешь создавать посты в этот канал.",
+            "📢 **У тебя пока нет добавленных каналов или чатов.**\n\n"
+            "Перешли любой пост из своего канала или группы сюда — я запомню его.\n\n"
+            "После этого ты сможешь создавать посты в этот чат/канал.",
         )
         return
 
     purpose_emoji = {"auto": "🤖", "manual": "✍️", "both": "🤖✍️"}
-    lines = ["📢 **Мои каналы**\n"]
+    type_icon = {"channel": "📢", "supergroup": "👥", "group": "👥", "chat": "👥"}
+    lines = ["📢 **Мои каналы и чаты**\n"]
     for ch in channels:
         emoji = purpose_emoji.get(ch["purpose"], "❓")
+        ticon = type_icon.get(ch["chat_type"], "💬")
         title = ch["title"] or f"чат {ch['chat_id']}"
-        lines.append(f"{emoji} `{ch['chat_id']}` — {title} ({ch['purpose']})")
+        lines.append(f"{ticon} {emoji} `{ch['chat_id']}` — {title} ({ch['purpose']})")
     lines.append("")
-    lines.append("ℹ️ Чтобы добавить — перешли пост из канала сюда.")
+    lines.append("ℹ️ Чтобы добавить — перешли пост из канала или группы сюда.")
     lines.append("🗑 Чтобы удалить — `/remove_channel {chat_id}`")
     lines.append("🔄 Чтобы сменить — `/channel_purpose {chat_id} auto|manual|both`")
     send_message(token, chat_id, "\n".join(lines))

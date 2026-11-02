@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS client_channels (
     user_id     INTEGER NOT NULL REFERENCES clients(user_id),
     chat_id     INTEGER NOT NULL,
     title       TEXT    NOT NULL DEFAULT '',
-    chat_type   TEXT    NOT NULL CHECK (chat_type IN ('channel', 'chat', 'supergroup')),
+    chat_type   TEXT    NOT NULL CHECK (chat_type IN ('channel', 'supergroup', 'chat', 'group')),
     purpose     TEXT    NOT NULL DEFAULT 'manual'
                         CHECK (purpose IN ('auto', 'manual', 'both')),
     added_at    TEXT    NOT NULL,
