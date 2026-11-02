@@ -1,14 +1,21 @@
-"""clients.db — таблица clients (без токенов).
+"""clients.db — клиенты, привязки, каналы, токены ботов.
 
-Токены — только в .env, не в БД.
+Токены ботов лежат в ``bot_tokens.token_enc`` зашифрованными
+(``pro_code/crypto.py``, Fernet). Ключ — в ``.env``, отдельно от БД.
+Открытым текстом токен не пишется никуда.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from pro_code.crypto import CryptoError, TokenCipher
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "clients.db"
 
@@ -58,19 +65,45 @@ CREATE TABLE IF NOT EXISTS client_channels (
     added_at    TEXT    NOT NULL,
     UNIQUE(user_id, chat_id)
 );
+
+-- Токены ботов клиентов. token_enc — шифротекст (pro_code/crypto.py),
+-- открытым текстом токен в БД не лежит никогда.
+CREATE TABLE IF NOT EXISTS bot_tokens (
+    user_id         INTEGER PRIMARY KEY REFERENCES clients(user_id),
+    token_enc       TEXT    NOT NULL,
+    bot_id          INTEGER,
+    bot_username    TEXT,
+    active          INTEGER NOT NULL DEFAULT 1,
+    added_at        TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL
+);
 """
 
 
 class ClientsDb:
     """Работа с clients.db."""
 
-    def __init__(self, path: str | Path = DB_PATH) -> None:
-        self.path = path
+    def __init__(
+        self, path: str | Path | None = None, cipher: TokenCipher | None = None
+    ) -> None:
+        # Дефолт берётся в момент вызова, а не при определении функции:
+        # иначе подмена DB_PATH (тесты, миграции) не действует.
+        self.path = Path(path) if path is not None else DB_PATH
         _ensure_dir()
-        self.conn = sqlite3.connect(str(path))
+        self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._ensure_schema()
+        # Шифр создаётся лениво: БД нужна и там, где токены не читаются
+        # (тесты, миграции). Без ключа падает только работа с токенами.
+        self._cipher = cipher
+
+    @property
+    def cipher(self) -> TokenCipher:
+        """Шифр токенов. Создаётся при первом обращении."""
+        if self._cipher is None:
+            self._cipher = TokenCipher()
+        return self._cipher
 
     def _ensure_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
@@ -244,6 +277,99 @@ class ClientsDb:
             (user_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- bot_tokens (токены клиентских ботов, зашифрованы) ------------------
+
+    def set_bot_token(
+        self,
+        user_id: int,
+        token: str,
+        bot_id: int | None = None,
+        bot_username: str | None = None,
+    ) -> None:
+        """Сохранить токен бота клиента. Токен шифруется перед записью."""
+        if not token or not token.strip():
+            raise ValueError("пустой токен не сохраняется")
+        enc = self.cipher.encrypt(token.strip())
+        now = self._now()
+        self.conn.execute(
+            """INSERT INTO bot_tokens
+               (user_id, token_enc, bot_id, bot_username, active, added_at, updated_at)
+               VALUES (?, ?, ?, ?, 1, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   token_enc=excluded.token_enc,
+                   bot_id=excluded.bot_id,
+                   bot_username=excluded.bot_username,
+                   active=1,
+                   updated_at=excluded.updated_at""",
+            (user_id, enc, bot_id, bot_username, now, now),
+        )
+        self.conn.commit()
+
+    def get_bot_token(self, user_id: int) -> str | None:
+        """Расшифрованный токен бота клиента. None — токена нет."""
+        row = self.conn.execute(
+            "SELECT token_enc FROM bot_tokens WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            return self.cipher.decrypt(row["token_enc"])
+        except CryptoError as exc:
+            logger.error("токен user_id=%d не расшифрован: %s", user_id, exc)
+            return None
+
+    def get_bot_info(self, user_id: int) -> dict[str, Any] | None:
+        """Метаданные бота без расшифровки токена."""
+        row = self.conn.execute(
+            "SELECT user_id, bot_id, bot_username, active, added_at, updated_at "
+            "FROM bot_tokens WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_active_bots(self) -> list[dict[str, Any]]:
+        """Все активные боты с расшифрованными токенами.
+
+        Запись, которую не удалось расшифровать, пропускается с ошибкой в
+        лог: один битый токен не должен ронять весь диспетчер.
+        """
+        rows = self.conn.execute(
+            "SELECT user_id, token_enc, bot_id, bot_username FROM bot_tokens "
+            "WHERE active = 1 ORDER BY user_id"
+        ).fetchall()
+        bots: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                token = self.cipher.decrypt(row["token_enc"])
+            except CryptoError as exc:
+                logger.error("бот user_id=%d пропущен: %s", row["user_id"], exc)
+                continue
+            bots.append({
+                "user_id": row["user_id"],
+                "token": token,
+                "bot_id": row["bot_id"],
+                "bot_username": row["bot_username"],
+            })
+        return bots
+
+    def deactivate_bot(self, user_id: int) -> bool:
+        """Отключить бота клиента (polling не поднимется)."""
+        now = self._now()
+        cur = self.conn.execute(
+            "UPDATE bot_tokens SET active = 0, updated_at = ? WHERE user_id = ?",
+            (now, user_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def delete_bot_token(self, user_id: int) -> bool:
+        """Удалить токен бота клиента."""
+        cur = self.conn.execute(
+            "DELETE FROM bot_tokens WHERE user_id = ?", (user_id,)
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def close(self) -> None:
         self.conn.close()

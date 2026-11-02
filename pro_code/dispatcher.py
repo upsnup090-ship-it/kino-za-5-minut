@@ -17,6 +17,7 @@ from typing import Any
 
 from pro_code.config import Config, ClientBot
 from pro_code.clients_db import ClientsDb
+from pro_code import activation
 from pro_code.tg_api import (
     TgConflict,
     TgError,
@@ -150,6 +151,91 @@ def _dispatch_update(
         return
 
 
+def master_worker(cfg: Config, db: ClientsDb, ruch_db: RuchDb) -> None:
+    """Поток polling главного бота (мастера).
+
+    Через него клиенты активируют своих ботов: /start → токен → getMe →
+    сохранение → запуск. Всё остальное — обычное меню мастера.
+    """
+    token = cfg.master_token
+    if not token:
+        return
+    offset: int | None = None
+    logger.info("polling главного бота запущен")
+
+    while True:
+        try:
+            updates = get_updates(token, offset=offset)
+            for update in updates:
+                offset = int(update.get("update_id", 0)) + 1
+                _dispatch_master(cfg, db, ruch_db, token, update)
+        except TgConflict:
+            logger.warning("409 Conflict у главного бота — другой процесс?")
+            time.sleep(10)
+        except TgError as exc:
+            logger.error("TgError у главного бота: %s", exc)
+            time.sleep(POLL_BACKOFF)
+        except Exception as exc:
+            logger.exception("необработанная ошибка главного бота: %s", exc)
+            time.sleep(POLL_BACKOFF)
+
+
+def _dispatch_master(
+    cfg: Config,
+    db: ClientsDb,
+    ruch_db: RuchDb,
+    token: str,
+    update: dict,
+) -> None:
+    """Обработать апдейт главного бота."""
+    message = update.get("message")
+    callback = update.get("callback_query")
+
+    if callback:
+        chat_id = (callback.get("message") or {}).get("chat", {}).get("id")
+        cb_id = str(callback.get("id", ""))
+        data = str(callback.get("data", ""))
+        if not chat_id:
+            return
+        answer_callback(token, cb_id)
+        if data.startswith(activation_cb_prefix()):
+            action = data[len(activation_cb_prefix()):]
+            try:
+                activation.handle(token, chat_id, chat_id, action, db)
+            except Exception as exc:
+                logger.exception("callback главного бота %s: %s", data, exc)
+        return
+
+    if not message:
+        return
+
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if not chat_id:
+        return
+
+    text = str(message.get("text", ""))
+    user_id = (message.get("from") or {}).get("id", chat_id)
+
+    try:
+        # Активация поглощает сообщение, если клиент в этом шаге
+        if activation.handle(token, chat_id, user_id, text, db):
+            return
+        # Иначе — обычный роутер (мастер видит RootA и т.д.)
+        is_owner = (user_id == cfg.admin_chat_id)
+        handle_message(
+            token, user_id, "free", is_owner, chat_id, text,
+            clients_db=db, ruch_db=ruch_db, raw_message=message,
+        )
+    except Exception as exc:
+        logger.exception("ошибка обработки апдейта главного бота: %s", exc)
+
+
+def activation_cb_prefix() -> str:
+    """Префикс callback_data кнопок активации."""
+    return "cb:"
+
+
 def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
     """Serve-цикл (вариант A): проверяет слоты всех клиентов по расписанию.
 
@@ -255,17 +341,49 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
 
 
 def run_dispatcher(cfg: Config) -> None:
-    """Запускает диспетчер: проверяет токены и стартует потоки."""
+    """Запускает диспетчер: главный бот, клиентские боты, serve-цикл."""
     db = ClientsDb()
     ruch_db = RuchDb()
 
-    threads: list[threading.Thread] = []
+    # Реестр живых потоков: user_id → Thread. Нужен, чтобы поднять бота
+    # после активации без рестарта и не поднять его дважды.
+    registry: dict[int, threading.Thread] = {}
+    lock = threading.Lock()
+
+    def spawn_bot(user_id: int, token: str) -> None:
+        """Поднять polling бота клиента. Повторный вызов — no-op."""
+        with lock:
+            existing = registry.get(user_id)
+            if existing is not None and existing.is_alive():
+                logger.info("бот user_id=%d уже запущен, повтор не нужен", user_id)
+                return
+            client = ClientBot(
+                user_id=user_id, token=token, plan="free", active=True, source="db"
+            )
+            row = db.get_client(user_id)
+            if row and row.get("plan") in ("free", "auto"):
+                client.plan = row["plan"]
+            t = threading.Thread(
+                target=poll_worker,
+                args=(cfg, client, db, ruch_db),
+                daemon=True,
+                name=f"bot-{user_id}",
+            )
+            t.start()
+            registry[user_id] = t
+            logger.info("бот user_id=%d запущен (поток %s)", user_id, t.name)
+
+    # Активация через главного бота поднимает бота этим колбэком.
+    activation.set_spawner(spawn_bot)
+
+    # --- клиентские боты из конфига (.env + БД) ---
     for client in cfg.clients:
-        # Проверка токена
         client.active = verify_bot(client.token)
-        # Обновляем статус в БД
         try:
-            db.upsert_client(client.user_id, plan=client.plan, status="active" if client.active else "inactive")
+            db.upsert_client(
+                client.user_id, plan=client.plan,
+                status="active" if client.active else "inactive",
+            )
         except Exception as exc:
             logger.error("не удалось записать клиента %d: %s", client.user_id, exc)
 
@@ -273,16 +391,26 @@ def run_dispatcher(cfg: Config) -> None:
             logger.warning("бот user_id=%d пропущен (неактивный токен)", client.user_id)
             continue
 
-        t = threading.Thread(
-            target=poll_worker,
-            args=(cfg, client, db, ruch_db),
-            daemon=True,
-            name=f"bot-{client.user_id}",
-        )
-        t.start()
-        threads.append(t)
+        spawn_bot(client.user_id, client.token)
 
-    # Стартуем serve-цикл (только если есть клиенты с планом auto)
+    # --- главный бот (мастер) ---
+    master_thread = None
+    if cfg.master_token:
+        if verify_bot(cfg.master_token):
+            master_thread = threading.Thread(
+                target=master_worker,
+                args=(cfg, db, ruch_db),
+                daemon=True,
+                name="master-bot",
+            )
+            master_thread.start()
+            logger.info("главный бот запущен")
+        else:
+            logger.error("MASTER_BOT_TOKEN неактивен — активация клиентов недоступна")
+    else:
+        logger.warning("MASTER_BOT_TOKEN не задан — главный бот не поднят")
+
+    # --- serve-цикл автопостинга ---
     auto_db = KinoAutoDb()
     serve_thread = threading.Thread(
         target=serve_worker,
@@ -292,9 +420,11 @@ def run_dispatcher(cfg: Config) -> None:
     )
     serve_thread.start()
 
-    logger.info("диспетчер запущен: %d ботов, serve-цикл %s",
-        len(threads),
-        "активен" if any(c.plan == "auto" for c in cfg.clients) else "неактивен (нет auto-клиентов)",
+    logger.info(
+        "диспетчер запущен: %d ботов, главный %s, serve-цикл %s",
+        len(registry),
+        "активен" if master_thread else "нет",
+        "активен" if any(c.plan == "auto" for c in cfg.clients) else "неактивен",
     )
 
     # Держим основной поток живым

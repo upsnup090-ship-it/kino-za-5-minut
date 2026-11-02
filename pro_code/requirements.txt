@@ -1,2 +1,5 @@
 requests>=2.31
 python-dotenv>=1.0
+# Шифрование токенов клиентских ботов (bot_tokens.token_enc).
+# Fernet: AES-128-CBC + HMAC-SHA256. Не самопал.
+cryptography>=42
