@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from kino.caption import build_caption as build_caption_text
 from kino.choose import Choice, choose
@@ -262,7 +262,13 @@ def build_caption(draft_data: dict, image_url: str, cfg: Config, kind: str = "",
                               pub_date=pub_date)
 
 
-def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) -> RunResult:
+def run(
+    cfg: Config,
+    dry_run: bool = True,
+    *,
+    deadline: Deadline | None = None,
+    publisher: Callable[..., bool] | None = None,
+) -> RunResult:
     """Полный прогон одного поста.
 
     Бюджеты времени: сбор живёт в собственном дедлайне (ретраи источников
@@ -271,6 +277,13 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
     исчерпании прогон завершается с `aborted=True`, а публикация готового
     поста не отменяется — она важнее добивки картинки. Явно переданный
     deadline управляет всем прогоном единым бюджетом (тесты, serve).
+
+    ``publisher`` — необязательная функция публикации с сигнатурой
+    ``kino.publish.publish``. Диспетчер передаёт сюда публикацию токеном и
+    каналом клиента: тогда генерация (сбор → черновик → судья) идёт как
+    обычно, а пост уходит не в канал мастера, а клиенту. Без ``publisher``
+    поведение прежнее — публикация через глобальный ``cfg`` (CLI, serve Kino,
+    все существующие вызовы не меняются).
     """
     explicit_deadline = deadline is not None
     if deadline is None:
@@ -449,7 +462,10 @@ def run(cfg: Config, dry_run: bool = True, *, deadline: Deadline | None = None) 
 
         if not dry_run:
             post_hash = _post_hash(caption, image.url, kind, link_url)
-            published = publish(
+            # publisher задан — пост уходит клиенту его токеном и каналом.
+            # Не задан — прежний путь: публикация через глобальный cfg.
+            publish_fn = publisher if publisher is not None else publish
+            published = publish_fn(
                 cfg,
                 caption,
                 image.url if kind != "text" else "",

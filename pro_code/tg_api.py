@@ -17,6 +17,8 @@ from typing import Any
 
 import requests
 
+from pro_code.sanitize import sanitize
+
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.telegram.org"
@@ -45,19 +47,24 @@ def _api_url(token: str, method: str) -> str:
 
 
 def _request(token: str, method: str, **kwargs: Any) -> dict:
-    """Универсальный запрос к Telegram API."""
+    """Универсальный запрос к Telegram API.
+
+    Текст ошибки проходит через ``sanitize``: ``requests`` кладёт в
+    ``str(exc)`` полный URL с токеном (``/bot<TOKEN>/getMe``), а диспетчер
+    логирует это исключение. Токен в лог попадать не должен.
+    """
     url = _api_url(token, method)
     kwargs.setdefault("timeout", 15)
     try:
         resp = requests.post(url, **kwargs) if kwargs else requests.get(url, **kwargs)
     except requests.RequestException as exc:
-        raise TgError(f"сетевой сбой: {exc}") from exc
+        raise TgError(sanitize(f"сетевой сбой: {exc}", token)) from None
 
     if resp.status_code == 409:
-        raise TgConflict(f"409 Conflict: другой процесс поллит токен ({token[:12]}…)")
+        raise TgConflict("409 Conflict: другой процесс поллит этот токен")
 
     if resp.status_code >= 400:
-        raise TgError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+        raise TgError(sanitize(f"HTTP {resp.status_code}: {resp.text[:200]}", token))
 
     data = resp.json()
     if not data.get("ok"):

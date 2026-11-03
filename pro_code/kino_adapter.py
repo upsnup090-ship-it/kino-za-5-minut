@@ -1,140 +1,188 @@
-"""Адаптер для вызова пайплайна Kino с per-client токеном и каналом.
+"""Адаптер Kino для диспетчера: генерация мастер-конфигом, публикация — клиенту.
 
-Kino (project/kino/pipeline.py) не зависит от токена/канала — он генерирует
-контент. Этот адаптер:
-1. Запускает pipeline.run() (глобальный cfg Kino)
-2. Берёт готовый пост и публикует через бота клиента (его токен, его канал)
-3. Учитывает LLM-расход
+Kino (``project/kino``) генерирует контент по своему конфигу и умеет
+публиковать сам — в канал мастера. Диспетчеру нужно другое: контент берём
+у Kino, а публикуем **ботом клиента в каналы клиента**. Для этого
+``kino.pipeline.run`` принимает ``publisher`` — функцию с сигнатурой
+``kino.publish.publish``. Без неё поведение Kino прежнее (CLI, serve).
+
+Что было сломано (аудит, P0-4):
+
+1. ``import kino`` из точки входа падал — лечится ``pro_code/bootstrap``.
+2. ``run()`` вызывался с ``dry_run`` по умолчанию, а публикация шла через
+   глобальный ``cfg`` — пост уходил **в канал мастера**, после чего адаптер
+   пытался опубликовать ещё раз клиенту.
+3. Второй путь публикации передавал в ``kino.publish.publish`` ``cfg=None``
+   → ``AttributeError: 'NoneType' object has no attribute 'settings'``.
+4. ``finish_run(0, ...)`` не находил строку в ``runs`` → журнал прогонов пуст.
+
+Теперь: один прогон Kino на клиента, публикация клиентским ``publisher``
+во все его каналы, дедуп ссылок — per-client (``kino_auto_db.used_links``).
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
-from pro_code.tg_api import send_message as tg_send_message
 from pro_code.kino_auto_db import KinoAutoDb
 
 logger = logging.getLogger(__name__)
 
-#: Условная стоимость одного LLM-прогона (будет уточнена)
+#: Условная стоимость одного LLM-прогона (будет уточнена).
 LLM_COST_PER_RUN = 0.001
+
+
+def make_client_publisher(
+    token: str,
+    channels: list[int],
+    user_id: int,
+    auto_db: KinoAutoDb,
+) -> Callable[..., bool]:
+    """Собрать ``publisher`` для ``pipeline.run``: публикация клиенту.
+
+    Возвращаемая функция повторяет сигнатуру ``kino.publish.publish`` —
+    pipeline вызывает её как ``publish_fn(cfg, caption, image, dry_run, ...)``
+    — но подставляет токен и каналы клиента. ``cfg`` (конфиг Kino) нужен
+    публикации для ``settings`` (parse_mode, таймауты) — раньше сюда
+    приходил ``None``, отсюда и падение.
+
+    Дедуп per-client: ссылку, уже ушедшую этому клиенту, повторно не
+    публикуем. Отметка ставится только после успешной отправки.
+    """
+
+    from kino.publish import publish as kino_publish
+
+    def publisher(
+        cfg: Any,
+        caption: str,
+        image_url: str,
+        dry_run: bool,
+        kind: str = "photo",
+        link_url: str = "",
+        extra_images: list[str] | None = None,
+        poll_question: str = "",
+        poll_options: list[str] | None = None,
+        seen_hashes: set[str] | None = None,
+        **_ignored: Any,
+    ) -> bool:
+        if link_url and auto_db.has_link(user_id, link_url):
+            logger.info(
+                "клиент user_id=%d: ссылка уже публиковалась, пропуск (%s)",
+                user_id, link_url,
+            )
+            return False
+
+        published_any = False
+        for ch in channels:
+            try:
+                ok = kino_publish(
+                    cfg,
+                    caption,
+                    image_url,
+                    dry_run=False,
+                    kind=kind,
+                    link_url=link_url,
+                    extra_images=extra_images,
+                    poll_question=poll_question,
+                    poll_options=poll_options,
+                    seen_hashes=seen_hashes,
+                    bot_token=token,
+                    channel_chat_id=str(ch),
+                )
+            except Exception as exc:  # noqa: BLE001 — один канал не роняет остальные
+                logger.exception(
+                    "публикация user_id=%d в канал %s не удалась: %s",
+                    user_id, ch, exc,
+                )
+                continue
+            published_any = published_any or bool(ok)
+
+        if published_any and link_url:
+            auto_db.mark_link(user_id, link_url)
+        return published_any
+
+    return publisher
 
 
 def run_auto_post(
     client_token: str,
-    channel_chat_id: int,
+    channels: list[int],
     user_id: int,
-    kino_cfg: Any,  # Config из project/kino/config.py
+    kino_cfg: Any,
     auto_db: KinoAutoDb,
     *,
     dry_run: bool = False,
+    run_id: int | None = None,
 ) -> dict[str, Any]:
-    """Запустить один цикл автопостинга для клиента.
+    """Один цикл автопостинга для клиента: генерация + публикация в его каналы.
 
-    Возвращает dict с результатом.
+    Возвращает ``{ok, published, format, ...}``.
     """
     try:
         from kino.pipeline import run as kino_run
     except ImportError as exc:
-        logger.error("Kino не доступен: %s", exc)
+        logger.error("Kino недоступен: %s", exc)
         return {"ok": False, "error": f"Kino недоступен: {exc}"}
 
-    # Запуск пайплайна (глобальный конфиг Kino)
+    publisher = make_client_publisher(client_token, channels, user_id, auto_db)
+
     try:
-        result = kino_run(kino_cfg, dry_run=dry_run)
+        result = kino_run(kino_cfg, dry_run=dry_run, publisher=publisher)
     except Exception as exc:
         logger.exception("ошибка пайплайна для user_id=%d: %s", user_id, exc)
         return {"ok": False, "error": str(exc)}
 
     if dry_run:
-        return {"ok": True, "dry_run": True, "format": result.format}
+        return {"ok": True, "dry_run": True, "format": getattr(result, "format", "")}
 
-    # Если пост готов — публикуем через бота клиента
-    if result.published:
-        return _publish_via_client(
-            client_token, channel_chat_id, user_id, result, auto_db,
-        )
+    published = bool(getattr(result, "published", False))
+    if published:
+        return {
+            "ok": True,
+            "published": True,
+            "format": getattr(result, "format", ""),
+            "kind": getattr(result, "kind", ""),
+            "link": getattr(result, "link", ""),
+        }
 
-    # Если судья отбил или другая ошибка — пробуем резерв
-    if result.verdict == "reject" or not result.published:
-        return _try_reserve(
-            client_token, channel_chat_id, user_id, auto_db,
-        )
-
-    return {"ok": False, "error": "пост не опубликован"}
-
-
-def _publish_via_client(
-    token: str,
-    chat_id: int,
-    user_id: int,
-    result: Any,
-    auto_db: KinoAutoDb,
-) -> dict[str, Any]:
-    """Публикует готовый пост через бота клиента."""
-    from kino.publish import publish as kino_publish
-
-    try:
-        success = kino_publish(
-            None,  # cfg — не нужен, передаём token и chat_id напрямую
-            caption=getattr(result, "caption", ""),
-            image_url=getattr(result, "image_url", ""),
-            dry_run=False,
-            kind=getattr(result, "kind", "text"),
-            link_url=getattr(result, "link", ""),
-            extra_images=getattr(result, "extra_images", None),
-            poll_question=getattr(result, "poll_question", ""),
-            poll_options=getattr(result, "poll_options", None),
-            seen_hashes=None,
-            bot_token=token,
-            channel_chat_id=str(chat_id),
-        )
-    except Exception as exc:
-        logger.exception("публикация через клиента не удалась user_id=%d: %s", user_id, exc)
-        # Пробуем резерв
-        return _try_reserve(token, chat_id, user_id, auto_db)
-
-    if success:
-        # Учитываем расход
-        auto_db.finish_run(
-            0, outcome="published", format=getattr(result, "format", ""),
-            kind=getattr(result, "kind", ""), llm_cost=LLM_COST_PER_RUN,
-        )
-        return {"ok": True, "published": True, "format": getattr(result, "format", "")}
-    else:
-        return _try_reserve(token, chat_id, user_id, auto_db)
+    # Пост не вышел — пробуем резерв клиента (per-client, kino_auto_db).
+    return _try_reserve(kino_cfg, client_token, channels, user_id, auto_db)
 
 
 def _try_reserve(
+    kino_cfg: Any,
     token: str,
-    chat_id: int,
+    channels: list[int],
     user_id: int,
     auto_db: KinoAutoDb,
 ) -> dict[str, Any]:
-    """Попробовать опубликовать пост из резерва клиента."""
+    """Опубликовать пост из резерва клиента (kino_auto_db.reserve)."""
     item = auto_db.take_reserve(user_id)
     if not item:
         return {"ok": False, "error": "резерв пуст"}
 
     from kino.publish import publish as kino_publish
 
-    try:
-        success = kino_publish(
-            None,
-            caption=item.get("caption", ""),
-            image_url=item.get("image_url", ""),
-            dry_run=False,
-            kind=item.get("kind", "text"),
-            link_url=item.get("link", ""),
-            bot_token=token,
-            channel_chat_id=str(chat_id),
-        )
-    except Exception as exc:
-        logger.error("публикация из резерва не удалась user_id=%d: %s", user_id, exc)
-        return {"ok": False, "error": str(exc)}
+    published_any = False
+    for ch in channels:
+        try:
+            ok = kino_publish(
+                kino_cfg,
+                item.get("caption", ""),
+                item.get("image_url", ""),
+                dry_run=False,
+                kind=item.get("kind", "text") or "text",
+                link_url=item.get("link", ""),
+                bot_token=token,
+                channel_chat_id=str(ch),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("резерв: публикация user_id=%d в %s не удалась: %s",
+                             user_id, ch, exc)
+            continue
+        published_any = published_any or bool(ok)
 
-    if success:
+    if published_any:
         return {"ok": True, "published": True, "from_reserve": True}
     return {"ok": False, "error": "публикация из резерва не удалась"}

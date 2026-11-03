@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from pro_code.db import ThreadedConn, ensure_dir
+
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "kino_auto.db"
 
 
@@ -76,6 +78,18 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at);
 
+-- Дедуп ссылок per-client: у каждого клиента свой список уже вышедших
+-- материалов (решение оператора: контент «свой на клиента»).
+CREATE TABLE IF NOT EXISTS used_links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    link        TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL,
+    UNIQUE(user_id, link)
+);
+
+CREATE INDEX IF NOT EXISTS idx_used_links_user ON used_links(user_id);
+
 CREATE TABLE IF NOT EXISTS meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,
@@ -87,17 +101,25 @@ CREATE TABLE IF NOT EXISTS meta (
 class KinoAutoDb:
     """Работа с БД автопостинга."""
 
-    def __init__(self, path: str | Path = DB_PATH) -> None:
-        self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self._ensure_schema()
+    def __init__(self, path: str | Path | None = None) -> None:
+        # Дефолт вычисляется в момент вызова: раньше он подставлялся при
+        # определении функции, и подмена DB_PATH (тесты) не действовала —
+        # а со строковым путём падало AttributeError 'str' has no 'parent'.
+        self.path = Path(path) if path is not None else DB_PATH
+        ensure_dir(self.path)
+        # Соединение — на поток (pro_code/db.py): serve-цикл и диалоги
+        # работают с БД из разных потоков.
+        self._conn = ThreadedConn(self.path, on_open=self._init_schema)
 
-    def _ensure_schema(self) -> None:
-        self.conn.executescript(_SCHEMA)
-        self.conn.commit()
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Соединение текущего потока (открывается при первом обращении)."""
+        return self._conn.conn
+
+    def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Создать схему при открытии соединения (идемпотентно)."""
+        conn.executescript(_SCHEMA)
+        conn.commit()
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -229,6 +251,30 @@ class KinoAutoDb:
         ).fetchone()
         return row is not None
 
+    # --- Used links (дедуп ссылок per-client) -------------------------------
+
+    def has_link(self, user_id: int, link: str) -> bool:
+        """Публиковалась ли этому клиенту такая ссылка."""
+        if not link:
+            return False
+        row = self.conn.execute(
+            "SELECT 1 FROM used_links WHERE user_id = ? AND link = ?",
+            (user_id, link),
+        ).fetchone()
+        return row is not None
+
+    def mark_link(self, user_id: int, link: str) -> None:
+        """Отметить ссылку как опубликованную клиенту."""
+        if not link:
+            return
+        now = self._now()
+        self.conn.execute(
+            "INSERT OR IGNORE INTO used_links (user_id, link, created_at) "
+            "VALUES (?, ?, ?)",
+            (user_id, link, now),
+        )
+        self.conn.commit()
+
     # --- Meta ---------------------------------------------------------------
 
     def set_meta(self, key: str, value: str) -> None:
@@ -254,4 +300,9 @@ class KinoAutoDb:
         self.set_meta(f"paused_{user_id}", "1" if paused else "0")
 
     def close(self) -> None:
-        self.conn.close()
+        """Закрыть соединение текущего потока."""
+        self._conn.close()
+
+    def close_all(self) -> None:
+        """Закрыть все соединения (остановка процесса)."""
+        self._conn.close_all()

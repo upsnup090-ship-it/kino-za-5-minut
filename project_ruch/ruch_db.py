@@ -19,15 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pro_code.db import ThreadedConn, ensure_dir
+
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "ruch.db"
 
 
 class RuchDbError(Exception):
     """Ошибка БД ручного модуля."""
-
-
-def _ensure_dir(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 _SCHEMA = """
@@ -122,17 +120,24 @@ CREATE TABLE IF NOT EXISTS post_drafts (
 class RuchDb:
     """Работа с БД ручного модуля."""
 
-    def __init__(self, path: str | Path = DB_PATH) -> None:
-        self.path = Path(path)
-        _ensure_dir(self.path)
-        self.conn = sqlite3.connect(str(self.path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self._ensure_schema()
+    def __init__(self, path: str | Path | None = None) -> None:
+        # Дефолт вычисляется в момент вызова: подмена DB_PATH (тесты,
+        # миграции) должна действовать.
+        self.path = Path(path) if path is not None else DB_PATH
+        ensure_dir(self.path)
+        # Соединение — на поток (pro_code/db.py): диалоги ручного постинга
+        # и планировщик работают из разных потоков диспетчера.
+        self._conn = ThreadedConn(self.path, on_open=self._init_schema)
 
-    def _ensure_schema(self) -> None:
-        self.conn.executescript(_SCHEMA)
-        self.conn.commit()
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Соединение текущего потока (открывается при первом обращении)."""
+        return self._conn.conn
+
+    def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Создать схему при открытии соединения (идемпотентно)."""
+        conn.executescript(_SCHEMA)
+        conn.commit()
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -460,4 +465,9 @@ class RuchDb:
         self.conn.commit()
 
     def close(self) -> None:
-        self.conn.close()
+        """Закрыть соединение текущего потока."""
+        self._conn.close()
+
+    def close_all(self) -> None:
+        """Закрыть все соединения (остановка процесса)."""
+        self._conn.close_all()

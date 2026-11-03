@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from pro_code.bootstrap import ensure_kino_importable
 from pro_code.config import ConfigError, load_config
 from pro_code.dispatcher import run_dispatcher
 
@@ -26,6 +27,9 @@ def setup_logging() -> None:
 
 def main() -> int:
     setup_logging()
+    # Пакет Kino живёт в project/ — без этого import kino падал, и
+    # автопостинг молчал (serve-цикл не мог загрузить конфиг Kino).
+    ensure_kino_importable()
     logger = logging.getLogger(__name__)
 
     try:

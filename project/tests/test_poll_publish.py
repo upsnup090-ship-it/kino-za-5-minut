@@ -24,7 +24,7 @@ def test_poll_sends_caption_before_question():
     cfg = _cfg()
     calls: list[tuple[str, dict]] = []
 
-    def fake_send(cfg, method, payload):
+    def fake_send(cfg, method, payload, **kwargs):
         calls.append((method, payload))
         return True
 
@@ -42,7 +42,7 @@ def test_poll_without_caption_sends_only_poll():
     cfg = _cfg()
     calls: list[str] = []
 
-    def fake_send(cfg, method, payload):
+    def fake_send(cfg, method, payload, **kwargs):
         calls.append(method)
         return True
 
@@ -58,7 +58,7 @@ def test_poll_skipped_when_caption_fails_to_send():
     cfg = _cfg()
     calls: list[str] = []
 
-    def fake_send(cfg, method, payload):
+    def fake_send(cfg, method, payload, **kwargs):
         calls.append(method)
         return False
 
@@ -74,7 +74,7 @@ def test_publish_poll_uses_caption():
     cfg = _cfg()
     calls: list[tuple[str, dict]] = []
 
-    def fake_send(cfg, method, payload):
+    def fake_send(cfg, method, payload, **kwargs):
         calls.append((method, payload))
         return True
 
@@ -99,7 +99,7 @@ def test_publish_poll_without_question_falls_back_to_text():
     cfg = _cfg()
     calls: list[str] = []
 
-    def fake_send(cfg, method, payload):
+    def fake_send(cfg, method, payload, **kwargs):
         calls.append(method)
         return True
 

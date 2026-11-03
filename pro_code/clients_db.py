@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pro_code.crypto import CryptoError, TokenCipher
+from pro_code.db import ThreadedConn, ensure_dir
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +26,6 @@ LLM_SPEND_LIMIT = 1.0
 
 class ClientsDbError(Exception):
     """Ошибка БД клиентов."""
-
-
-def _ensure_dir() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 _SCHEMA = """
@@ -89,14 +86,19 @@ class ClientsDb:
         # Дефолт берётся в момент вызова, а не при определении функции:
         # иначе подмена DB_PATH (тесты, миграции) не действует.
         self.path = Path(path) if path is not None else DB_PATH
-        _ensure_dir()
-        self.conn = sqlite3.connect(str(self.path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self._ensure_schema()
+        ensure_dir(self.path)
+        # Соединение — на поток, открывается лениво при первом обращении
+        # (см. pro_code/db.py). Раньше здесь открывался self.conn в главном
+        # потоке, и любой бот в своём потоке получал ProgrammingError.
+        self._conn = ThreadedConn(self.path, on_open=self._init_schema)
         # Шифр создаётся лениво: БД нужна и там, где токены не читаются
         # (тесты, миграции). Без ключа падает только работа с токенами.
         self._cipher = cipher
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Соединение текущего потока (открывается при первом обращении)."""
+        return self._conn.conn
 
     @property
     def cipher(self) -> TokenCipher:
@@ -105,9 +107,14 @@ class ClientsDb:
             self._cipher = TokenCipher()
         return self._cipher
 
-    def _ensure_schema(self) -> None:
-        self.conn.executescript(_SCHEMA)
-        self.conn.commit()
+    def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Создать схему при открытии соединения (идемпотентно).
+
+        Выполняется один раз на каждое новое соединение потока:
+        ``CREATE TABLE IF NOT EXISTS`` безопасен при повторе.
+        """
+        conn.executescript(_SCHEMA)
+        conn.commit()
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -372,4 +379,9 @@ class ClientsDb:
         return cur.rowcount > 0
 
     def close(self) -> None:
-        self.conn.close()
+        """Закрыть соединение текущего потока."""
+        self._conn.close()
+
+    def close_all(self) -> None:
+        """Закрыть все соединения (остановка процесса)."""
+        self._conn.close_all()

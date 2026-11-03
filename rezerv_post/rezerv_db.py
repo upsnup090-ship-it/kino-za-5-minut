@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from pro_code.db import ThreadedConn, ensure_dir
+
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "rezerv.db"
 
 
@@ -43,16 +45,24 @@ CREATE INDEX IF NOT EXISTS idx_reserve_expires ON reserve(expires_at);
 class ReserveDb:
     """Работа с БД отложенных постов."""
 
-    def __init__(self, path: str | Path = DB_PATH) -> None:
-        self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self._ensure_schema()
+    def __init__(self, path: str | Path | None = None) -> None:
+        # Дефолт вычисляется в момент вызова: подмена DB_PATH (тесты) должна
+        # действовать, а строковый путь не должен падать на .parent.
+        self.path = Path(path) if path is not None else DB_PATH
+        ensure_dir(self.path)
+        # Соединение — на поток (pro_code/db.py): резерв открывается и в
+        # диалоге, и в планировщике, то есть из разных потоков.
+        self._conn = ThreadedConn(self.path, on_open=self._init_schema)
 
-    def _ensure_schema(self) -> None:
-        self.conn.executescript(_SCHEMA)
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Соединение текущего потока (открывается при первом обращении)."""
+        return self._conn.conn
+
+    def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Создать схему при открытии соединения (идемпотентно)."""
+        conn.executescript(_SCHEMA)
+        conn.commit()
         self.conn.commit()
 
     def _now(self) -> str:
@@ -129,4 +139,9 @@ class ReserveDb:
         return cur.rowcount
 
     def close(self) -> None:
-        self.conn.close()
+        """Закрыть соединение текущего потока."""
+        self._conn.close()
+
+    def close_all(self) -> None:
+        """Закрыть все соединения (остановка процесса)."""
+        self._conn.close_all()
