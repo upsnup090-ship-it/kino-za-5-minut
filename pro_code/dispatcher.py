@@ -717,7 +717,7 @@ def run_dispatcher(cfg: Config) -> None:
 
     logger.info(
         "диспетчер запущен: %d ботов, главный %s, serve-цикл %s",
-        len(registry),
+        len(cfg.clients),
         "активен" if master_thread else "нет",
         "активен" if any(c.plan == "auto" for c in cfg.clients) else "неактивен",
     )
