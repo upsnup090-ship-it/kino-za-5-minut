@@ -346,3 +346,63 @@ Y #<номер>
 
 Если артефакт требует сети вне allowlist (например, `git push` на
 github) — это отдельное объявление и отдельная санкция, не «заодно».
+
+## 13. Сервер — факты (reqline)
+
+Боевой хост: **reqline.com** (Debian 12, systemd). Агент к нему не
+подключается (§12). Ниже — зафиксированное состояние на 2026-11-04.
+
+### 13.1. Пути
+
+```
+/opt/kino/                      — корень деплоя
+/opt/kino/project/              — git-копия (распакованный ЗИП)
+/opt/kino/project/.env          — единый боевой конфиг (chmod 600, вне git)
+/opt/kino/project/venv/         — общий venv (pro_code + kino)
+/opt/kino/project/data/         — БД: clients.db, ruch.db
+/opt/kino/project/project/data/ — БД: kino.db (слоты, резерв, журнал прогонов)
+```
+
+### 13.2. Юниты (3 штуки)
+
+| юнит | ExecStart | WorkingDirectory | EnvironmentFile |
+|---|---|---|---|
+| `kino-dispatcher` | `python -m pro_code.main` | `/opt/kino/project` | `/opt/kino/project/.env` |
+| `kino` | `python -m kino serve` | `/opt/kino/project/project` | `/opt/kino/project/.env` |
+| `kino-admin` | `python -m kino admin` | `/opt/kino/project/project` | `/opt/kino/project/.env` |
+
+Все — `User=kino`, `Restart=always`, лог в journald.
+
+### 13.3. Единый env
+
+Оба модуля читают **один** файл `/opt/kino/project/.env`:
+- `pro_code/config.py`: `ROOT = parents[1]` = `/opt/kino/project` →
+  `load_dotenv(ROOT/.env)`
+- `kino/config.py`: `ENV_ROOT = ROOT.parent` = `/opt/kino/project` →
+  `load_dotenv(ENV_ROOT/.env)`
+
+Ключи: `ADMIN_CHAT_ID`, `MASTER_BOT_TOKEN`, `TOKEN_ENCRYPTION_KEY`,
+`RUCH_TIMEZONE`, `CLIENT_<id>`, `BOT_TOKEN`, `CHANNEL_CHAT_ID`,
+`LLM_PROVIDER`, `LLM_BASE_URL`, `OPENROUTER_API_KEY`, `DRAFT_MODEL`,
+`JUDGE_MODEL`, `JUDGE_FALLBACK_MODEL`.
+
+### 13.4. LLM
+
+Провайдер **OpenRouter** через свой шлюз `https://ai.reqline.ru/v1`
+(в allowlist llm-класса). Модели: черновик `openai/gpt-4.1-mini`,
+судья `openai/gpt-4o-mini`, фолбэк `glm-5.3-flash`.
+
+### 13.5. Git
+
+- remote: `https://github.com/upsnup090-ship-it/kino-za-5-minut.git`
+  (HTTPS, не SSH — порт 22 на сервере закрыт)
+- ветка `main`; `credential.helper=store` (токен в `~/.git-credentials`)
+- обновление кода на сервере: `git pull origin main` + `systemctl restart`
+  (или заливка нового ЗИПа)
+
+### 13.6. Развёртывание с нуля
+
+Полный порядок — в `deploy/README.md` и `docs/industrial/RUN.md`.
+Кратко: удалить `/opt/kino` → распаковать ЗИП в `/opt/kino/` (внутри
+папка `project/`) → `chown -R kino:kino` → создать `.env` → venv +
+`pip install` ×2 → скопировать 3 юнита → `daemon-reload` + `enable --now`.
