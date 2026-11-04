@@ -106,6 +106,13 @@ def _posts_keyboard() -> dict:
 
 def start(token: str, chat_id: int, user_id: int, clients_db: ClientsDb, ruch_db: RuchDb) -> None:
     """Начать диалог: /post."""
+    # Не затирать активный диалог повторяющихся сообщений.
+    current = (ruch_db.get_draft(user_id) or {}).get("state") or ""
+    if current.startswith("repeating:"):
+        _send(token, chat_id,
+              "⏳ Сначала заверши создание повторяющегося сообщения\n"
+              "(отправь его текст/время/дни или `/cancel`).")
+        return
     channels = _manual_channels(clients_db, user_id)
     if not channels:
         _send(
@@ -152,6 +159,11 @@ def handle(
         return True
 
     if cmd in ("/post", "✍️ новый пост", "новый пост"):
+        if state.startswith("repeating:"):
+            _send(token, chat_id,
+                  "⏳ Сначала заверши создание повторяющегося сообщения\n"
+                  "(отправь его текст/время/дни или `/cancel`).")
+            return True
         start(token, chat_id, user_id, clients_db, ruch_db)
         return True
 

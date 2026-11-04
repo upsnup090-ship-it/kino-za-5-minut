@@ -49,6 +49,21 @@ CREATE TABLE IF NOT EXISTS repeating_messages (
 
 CREATE INDEX IF NOT EXISTS idx_repeating_user ON repeating_messages(user_id);
 
+-- Дедупликация отправки повторяющихся сообщений: одна запись на
+-- (клиент, сообщение, день) в зоне клиента. Не даёт двойной отправки
+-- при повторном тике и повторной отправки после пропущенного тика.
+CREATE TABLE IF NOT EXISTS repeating_sent (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    repeat_id   INTEGER NOT NULL,
+    sent_date   TEXT    NOT NULL,
+    message_id  INTEGER,
+    created_at  TEXT    NOT NULL,
+    UNIQUE (user_id, repeat_id, sent_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_repsent ON repeating_sent(user_id, repeat_id, sent_date);
+
 CREATE TABLE IF NOT EXISTS manual_posts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         INTEGER NOT NULL,
@@ -137,7 +152,24 @@ class RuchDb:
     def _init_schema(self, conn: sqlite3.Connection) -> None:
         """Создать схему при открытии соединения (идемпотентно)."""
         conn.executescript(_SCHEMA)
+        self._migrate(conn)
         conn.commit()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Миграции для живых БД (идемпотентно, по PRAGMA table_info).
+
+        - repeating_messages.last_message_id — JSON {chat_id: message_id}
+          последней публикации (для delete_last в повторяющихся).
+        - post_drafts.extra — JSON произвольных полей диалогов
+          (repeating-диалог хранит тут days_week/время/опции).
+        """
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(repeating_messages)").fetchall()}
+        if "last_message_id" not in cols:
+            conn.execute("ALTER TABLE repeating_messages ADD COLUMN last_message_id TEXT")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(post_drafts)").fetchall()}
+        if "extra" not in cols:
+            conn.execute("ALTER TABLE post_drafts ADD COLUMN extra TEXT")
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -203,6 +235,33 @@ class RuchDb:
         return cur.rowcount > 0
 
     # --- Manual posts -------------------------------------------------------
+
+    def set_repeating_last_messages(self, repeat_id: int, mapping: dict[str, int]) -> None:
+        """Запомнить message_id публикаций (JSON chat_id→message_id)."""
+        self.conn.execute(
+            "UPDATE repeating_messages SET last_message_id = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(mapping, ensure_ascii=False), self._now(), repeat_id),
+        )
+        self.conn.commit()
+
+    def repeating_sent_today(self, user_id: int, repeat_id: int, sent_date: str) -> bool:
+        """Уже отправлено это сообщение в указанную дату (дедуп)."""
+        row = self.conn.execute(
+            "SELECT 1 FROM repeating_sent WHERE user_id = ? AND repeat_id = ? AND sent_date = ?",
+            (user_id, repeat_id, sent_date),
+        ).fetchone()
+        return row is not None
+
+    def add_repeating_sent(
+        self, user_id: int, repeat_id: int, sent_date: str, message_id: int | None = None
+    ) -> None:
+        """Отметить отправку (INSERT OR IGNORE: дубль молча пропускается)."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO repeating_sent (user_id, repeat_id, sent_date, message_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, repeat_id, sent_date, message_id, self._now()),
+        )
+        self.conn.commit()
 
     def add_manual_post(
         self,
@@ -430,11 +489,17 @@ class RuchDb:
         )
         current = self.get_draft(user_id) or {}
         merged = {k: fields.get(k, current.get(k)) for k in allowed}
+        # extra — произвольные поля диалогов (JSON). Без явного extra
+        # в fields сохраняем прежний (merge по полям его не затирает).
+        if "extra" in fields:
+            merged["extra"] = fields["extra"]
+        else:
+            merged["extra"] = current.get("extra")
         self.conn.execute(
             """INSERT INTO post_drafts
                (user_id, state, channel_chat_id, text, media_type, media_path,
-                parse_mode, reply_to_msg_id, post_id, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                parse_mode, reply_to_msg_id, post_id, extra, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                    state=excluded.state,
                    channel_chat_id=excluded.channel_chat_id,
@@ -444,6 +509,7 @@ class RuchDb:
                    parse_mode=excluded.parse_mode,
                    reply_to_msg_id=excluded.reply_to_msg_id,
                    post_id=excluded.post_id,
+                   extra=excluded.extra,
                    updated_at=excluded.updated_at""",
             (
                 user_id,
@@ -455,6 +521,7 @@ class RuchDb:
                 merged.get("parse_mode") or "HTML",
                 merged.get("reply_to_msg_id"),
                 merged.get("post_id"),
+                merged.get("extra"),
                 now,
             ),
         )

@@ -18,7 +18,9 @@ post_drafts, kind="repeating"). Текст/медиа по baseline §5.1: те�
 from __future__ import annotations
 
 import logging
+import json
 import re
+from datetime import date, datetime, timezone
 from typing import Any
 
 from pro_code.clients_db import ClientsDb
@@ -114,6 +116,18 @@ def show_section(token: str, chat_id: int, user_id: int, ruch_db: RuchDb | None 
 
 
 def start_add(token: str, chat_id: int, user_id: int, clients_db: ClientsDb | None = None, ruch_db2: RuchDb | None = None) -> None:
+    # Не затирать активный диалог ручного постинга.
+    db_probe = ruch_db2
+    if db_probe is None:
+        db_probe = _ruch_db()
+        current = (db_probe.get_draft(user_id) or {}).get("state") or ""
+        db_probe.close()
+    else:
+        current = (db_probe.get_draft(user_id) or {}).get("state") or ""
+    if current in ("await_channel", "await_content", "await_confirm"):
+        _send(token, chat_id,
+              "⏳ Сначала заверши создание поста (отправь его или `/cancel`).")
+        return
     channels = _manual_channels(clients_db or ClientsDb(), user_id)
     if not channels:
         _send(
@@ -148,7 +162,9 @@ def _on_text(token: str, chat_id: int, user_id: int, text: str, db: RuchDb | Non
         _send(token, chat_id, "❌ Слишком длинный текст (макс. 3500 символов).")
         return
     db = db or _ruch_db()
-    db.save_draft(user_id, state="repeating:await_time", text=text)
+    extra = _load_extra(db, user_id)
+    extra["text_len"] = len(text)
+    db.save_draft(user_id, state="repeating:await_time", text=text, extra=json_dumps(extra))
     _send(
         token, chat_id,
         "⏰ **Шаг 2/3 — время**\n\n"
@@ -165,8 +181,9 @@ def _on_time(token: str, chat_id: int, user_id: int, text: str, db: RuchDb | Non
     hh, mm = raw.split(":")
     time_norm = f"{int(hh):02d}:{int(mm):02d}"
     db = db or _ruch_db()
-    # Поле time в post_drafts отсутствует — возим время в state.
-    db.save_draft(user_id, state=f"repeating:await_days:{time_norm}")
+    extra = _load_extra(db, user_id)
+    extra["time"] = time_norm
+    db.save_draft(user_id, state="repeating:await_days", extra=json_dumps(extra))
     _send(
         token, chat_id,
         "📅 **Шаг 3/3 — дни недели**\n\n"
@@ -196,23 +213,148 @@ def _on_days(token: str, chat_id: int, user_id: int, text: str, db: RuchDb | Non
         days_str = ",".join(str(d) for d in sorted(set(days)))
 
     db = db or _ruch_db()
+    extra = _load_extra(db, user_id)
+    extra["days_week"] = days_str
+    db.save_draft(user_id, state="repeating:await_opts", extra=json_dumps(extra))
+    _send(
+        token, chat_id,
+        "⚙️ **Шаг 4/4 — опции** (можно пропустить: отправь `—`)\n\n"
+        "Формат: `интервал 24, пин, удалять, с 01.11 по 30.11, дни месяца 1,15`\n"
+        "• `интервал N` — повторять каждые N часов\n"
+        "• `пин` — закреплять опубликованное\n"
+        "• `удалять` — удалять предыдущий пост\n"
+        "• `с ДД.ММ по ДД.ММ` — период действия\n"
+        "• `дни месяца 1,15` — только эти числа",
+    )
+
+
+def _load_extra(db: RuchDb, user_id: int) -> dict:
     draft = db.get_draft(user_id) or {}
-    state = draft.get("state") or ""
-    time_norm = state.split(":", 2)[2] if state.count(":") >= 2 else "00:00"
+    raw = draft.get("extra")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+
+
+def json_dumps(obj: dict) -> str:
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def _parse_options(raw: str) -> dict | None:
+    """Парсер строки опций шага 4. None — есть нераспознанный токен."""
+    opts = {
+        "interval_hours": 24, "interval_minutes": 0,
+        "pin": False, "delete_last": False,
+        "start_date": None, "end_date": None, "days_month": "",
+    }
+    raw = raw.strip().lower()
+    if raw in ("—", "-", "нет", "no", "skip", ""):
+        return opts
+    DATE_RE = re.compile(r"^(\d{1,2})[.\-/](\d{1,2})(?:[.\-/](\d{2,4}))?$")
+
+    def parse_date_tok(tok: str) -> str | None:
+        m = DATE_RE.match(tok)
+        if not m:
+            return None
+        d, mo, y = m.groups()
+        year = int(y) if y else 2026  # без года — текущий
+        if len(str(y or "")) == 2:
+            year = 2000 + int(y)
+        try:
+            return date(year, int(mo), int(d)).isoformat()
+        except ValueError:
+            return None
+
+    # «с X по Y» и «дни месяца 1,15» содержат запятые внутри — нормализуем:
+    raw = re.sub(r"\bс\s+(\S+)\s+по\s+(\S+)", r"с \1 по \2", raw)
+    raw = re.sub(r"(дни месяца[^,]+),\s*(\d+)", r"\1;\2", raw)
+    for tok in [t.strip().replace(";", ",") for t in raw.split(",")]:
+        if tok in ("пин", "pin"):
+            opts["pin"] = True
+        elif tok in ("удалять", "удалить", "del_last", "удаление"):
+            opts["delete_last"] = True
+        elif tok.startswith("интервал"):
+            num = re.sub(r"[^0-9]", "", tok)
+            if not num:
+                return None
+            opts["interval_hours"] = int(num)
+            opts["interval_minutes"] = 0
+        elif " по " in tok and tok.startswith("с "):
+            # сегмент «с ДД.ММ по ДД.ММ» (даты могут быть в одном токене)
+            left, right = tok[2:].split(" по ", 1)
+            d1, d2 = parse_date_tok(left.strip()), parse_date_tok(right.strip())
+            if not d1 or not d2:
+                return None
+            opts["start_date"], opts["end_date"] = d1, d2
+        elif tok.startswith("с "):
+            d = parse_date_tok(tok[2:])
+            if not d:
+                return None
+            opts["start_date"] = d
+        elif tok.startswith("по "):
+            d = parse_date_tok(tok[3:])
+            if not d:
+                return None
+            opts["end_date"] = d
+        elif tok.startswith("дни месяца"):
+            nums = re.sub(r"[^0-9, ]", "", tok[len("дни месяца"):])
+            nums = [n.strip() for n in nums.split(",") if n.strip()]
+            if not nums or any(not n.isdigit() or not (1 <= int(n) <= 31) for n in nums):
+                return None
+            opts["days_month"] = ",".join(nums)
+        else:
+            return None
+    return opts
+
+
+def _on_opts(token: str, chat_id: int, user_id: int, text: str, db: RuchDb | None = None) -> None:
+    opts = _parse_options(text)
+    if opts is None:
+        _send(
+            token, chat_id,
+            "❌ Не понял опцию. Формат: `интервал 24, пин, удалять, с 01.11 по 30.11, дни месяца 1,15`\n"
+            "Или отправь `—` чтобы пропустить.",
+        )
+        return
+
+    db = db or _ruch_db()
+    draft = db.get_draft(user_id) or {}
+    extra = _load_extra(db, user_id)
     msg_id = db.add_repeating(
         user_id=user_id,
         text=draft.get("text") or "",
-        time=time_norm,
-        days_week=days_str,
+        time=extra.get("time") or "00:00",
+        days_week=extra.get("days_week") or "0,1,2,3,4,5,6",
+        interval_hours=opts["interval_hours"],
+        interval_minutes=opts["interval_minutes"],
+        days_month=opts["days_month"],
+        start_date=opts["start_date"],
+        end_date=opts["end_date"],
+        pin=opts["pin"],
+        delete_last=opts["delete_last"],
     )
     db.clear_draft(user_id)
-    _send(
-        token, chat_id,
-        f"✅ **#{msg_id} создано.**\n\n"
-        f"Время: `{draft.get('time') or '00:00'}` (МСК), дни: {days_str.replace(',', ', ')}\n"
-        f"Каналы публикации — ✍️ ручные (`/channels`).\n"
-        f"Выключить: `/repeat off {msg_id}`.",
-    )
+    parts = [f"✅ **#{msg_id} создано.**\n"]
+    parts.append(f"Время: `{extra.get('time') or '00:00'}` (МСК)")
+    days = extra.get("days_week") or "0,1,2,3,4,5,6"
+    parts.append(f"Дни: {days.replace(',', ', ')}")
+    if opts["interval_hours"] != 24:
+        parts.append(f"Интервал: каждые {opts['interval_hours']} ч")
+    if opts["pin"]:
+        parts.append("📌 закрепление")
+    if opts["delete_last"]:
+        parts.append("🗑 удаление предыдущего")
+    if opts["start_date"] or opts["end_date"]:
+        parts.append(f"Период: {opts['start_date'] or '…'} — {opts['end_date'] or '…'}")
+    if opts["days_month"]:
+        parts.append(f"Дни месяца: {opts['days_month']}")
+    parts.append("")
+    parts.append("Каналы публикации — ✍️ ручные (`/channels`).")
+    parts.append(f"Выключить: `/repeat off {msg_id}`.")
+    _send(token, chat_id, "\n".join(parts))
 
 
 def handle_add_dialog(
@@ -232,8 +374,10 @@ def handle_add_dialog(
         _on_text(token, chat_id, user_id, text, ruch_db)
     elif state == "repeating:await_time":
         _on_time(token, chat_id, user_id, text, ruch_db)
-    elif state.startswith("repeating:await_days"):
+    elif state == "repeating:await_days":
         _on_days(token, chat_id, user_id, text, ruch_db)
+    elif state == "repeating:await_opts":
+        _on_opts(token, chat_id, user_id, text, ruch_db)
     return True
 
 
@@ -309,6 +453,12 @@ def due_now(
     Вызывается из serve-цикла диспетчера (тик каждую минуту). Публикует
     во все каналы клиента с назначением ✍️ ручной/both. Возвращает
     опубликованные сообщения.
+
+    Дедуп: сообщение публикуется один раз в сутки — отметка в
+    ``repeating_sent`` (user_id, repeat_id, sent_date в зоне клиента).
+    Поэтому окно «время наступило» (``time <= now``), а не равенство
+    минуты: пропущенный тик (занятый serve, рестарт) не теряет пост —
+    он уйдёт на первом тике после времени.
     """
     tz = RuchConfig().timezone
     if now is not None and now.tzinfo is None:
@@ -321,13 +471,45 @@ def due_now(
     else:
         close_after = False
     try:
-        due = repeating_mod.get_due_messages(ruch_db, user_id, now=now, tz=tz)
+        moment = now or datetime.now(timezone.utc)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        local = moment.astimezone(tz)
+        now_time = local.strftime("%H:%M")
+        today = local.strftime("%Y-%m-%d")
+
+        due = [
+            msg for msg in ruch_db.list_repeating(user_id)
+            if msg.get("enabled")
+            and _time_le(str(msg.get("time") or ""), now_time)
+            and not ruch_db.repeating_sent_today(user_id, msg["id"], today)
+        ]
+        # Даты начала/окончания и дни — повторно проверяем через
+        # get_due_messages-логику: фильтруем только по дате/дням.
+        due = _filter_by_dates_and_days(due, local)
         if not due:
             return []
+
         channels = _manual_channels(clients_db, user_id)
+        if not channels:
+            return []
+
+        from pro_code.tg_api import delete_message as tg_delete, pin_chat_message
+
         published = []
         for msg in due:
+            last_map: dict[str, int] = {}
+            if msg.get("last_message_id"):
+                try:
+                    last_map = json.loads(msg["last_message_id"])
+                except (ValueError, TypeError):
+                    last_map = {}
+            sent_map: dict[str, int] = {}
             for ch in channels:
+                ch_id = str(ch["chat_id"])
+                # delete_last: убрать предыдущий пост в этом канале
+                if msg.get("delete_last") and ch_id in last_map:
+                    tg_delete(token, ch["chat_id"], last_map[ch_id])
                 post_id = ruch_db.add_manual_post(
                     user_id=user_id,
                     channel_chat_id=ch["chat_id"],
@@ -336,12 +518,23 @@ def due_now(
                 )
                 from project_ruch import manual_post
                 result = manual_post.publish_post(ruch_db, post_id, token)
+                ok = result.get("ok", False)
+                message_id = result.get("message_id")
+                if ok and message_id:
+                    sent_map[ch_id] = int(message_id)
+                    if msg.get("pin"):
+                        pin_chat_message(token, ch["chat_id"], int(message_id))
+                ruch_db.add_repeating_sent(
+                    user_id, msg["id"], today, message_id
+                )
                 published.append({
                     "repeat_id": msg["id"],
                     "post_id": post_id,
                     "chat_id": ch["chat_id"],
-                    "ok": result.get("ok", False),
+                    "ok": ok,
                 })
+            if sent_map:
+                ruch_db.set_repeating_last_messages(msg["id"], sent_map)
             logger.info(
                 "repeating: опубликовано %d каналов для user_id=%d (сообщение #%d)",
                 len(channels), user_id, msg["id"],
@@ -350,3 +543,36 @@ def due_now(
     finally:
         if close_after:
             ruch_db.close()
+
+
+def _time_le(msg_time: str, now_time: str) -> bool:
+    """msg_time <= now_time (строки HH:MM; None/битые → False)."""
+    try:
+        th, tm = msg_time.split(":")[:2]
+        nh, nm = now_time.split(":")[:2]
+        return (int(th), int(tm)) <= (int(nh), int(nm))
+    except (ValueError, AttributeError):
+        return False
+
+
+def _filter_by_dates_and_days(msgs: list[dict[str, Any]], local: Any) -> list[dict[str, Any]]:
+    """Фильтр по start/end датам, дням недели и дням месяца (локальная дата)."""
+    weekday = str(local.weekday())
+    day = str(local.day)
+    today = local.date()
+    result = []
+    for msg in msgs:
+        start = repeating_mod._parse_date(msg.get("start_date"))
+        if start and today < start:
+            continue
+        end = repeating_mod._parse_date(msg.get("end_date"))
+        if end and today > end:
+            continue
+        days_week = (msg.get("days_week") or "").split(",")
+        if days_week and days_week != [""] and weekday not in [d.strip() for d in days_week]:
+            continue
+        days_month = (msg.get("days_month") or "").split(",")
+        if days_month and days_month != [""] and day not in [d.strip() for d in days_month]:
+            continue
+        result.append(msg)
+    return result

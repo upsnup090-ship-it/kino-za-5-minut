@@ -245,6 +245,23 @@ def get_me_id(token: str) -> int | None:
         return None
 
 
+def pin_chat_message(
+    token: str, chat_id: int | str, message_id: int, notify: bool = False,
+) -> bool:
+    """Закрепить сообщение. False при ошибке (права, нет сообщения)."""
+    try:
+        _request(token, "pinChatMessage", json={
+            "chat_id": chat_id, "message_id": message_id,
+            "disable_notification": not notify,
+        })
+        return True
+    except TgError as exc:
+        logging.getLogger(__name__).warning(
+            "pinChatMessage %s/%s: %s", chat_id, message_id, exc
+        )
+        return False
+
+
 def delete_message(token: str, chat_id: int | str, message_id: int) -> bool:
     """Удалить сообщение. True — удалено."""
     try:

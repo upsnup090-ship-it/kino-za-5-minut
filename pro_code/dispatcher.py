@@ -545,14 +545,14 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
 
         # --- Повторяющиеся сообщения (baseline §5.1): все клиенты, не только auto ---
         try:
-            _repeating_tick(cfg, db)
+            _repeating_tick(db)
         except Exception as exc:
             logger.exception("serve-цикл: repeating tick: %s", exc)
 
         time.sleep(SERVE_INTERVAL)
 
 
-def _repeating_tick(cfg: Config, db: ClientsDb) -> None:
+def _repeating_tick(db: ClientsDb) -> None:
     """Один тик повторяющихся сообщений: все активные клиенты.
 
     Время сверяется в зоне клиента (та же логика, что и в слотах auto).
@@ -576,8 +576,17 @@ def _repeating_tick(cfg: Config, db: ClientsDb) -> None:
     try:
         from pro_code.config import _clients_from_env
         seen = {u for u, _ in active}
+        # Клиенты, явно помеченные inactive в БД, не публикуем даже если
+        # их токен остался в .env (мастер отключил — значит отключил).
+        inactive: set[int] = set()
+        for row in db.list_clients():
+            if row.get("status") != "active":
+                try:
+                    inactive.add(int(row["user_id"]))
+                except (KeyError, TypeError, ValueError):
+                    pass
         for client in _clients_from_env().values():
-            if client.user_id not in seen and client.active:
+            if client.user_id not in seen and client.active and client.user_id not in inactive:
                 active.append((client.user_id, client.token))
     except Exception as exc:
         logger.error("repeating tick: .env недоступен: %s", exc)
@@ -616,7 +625,15 @@ def make_spawner(cfg: Config, db: ClientsDb, ruch_db: Any) -> Callable[[int, str
                     "бот user_id=%d: токен сменился — перезапуск потока", user_id
                 )
                 entry["stop"].set()
-                entry["thread"].join(timeout=10)
+                # long-poll get_updates держит соединение до 15с — даём столько же.
+                entry["thread"].join(timeout=15)
+                if entry["thread"].is_alive():
+                    logger.warning(
+                        "старый поток user_id=%d не завершился за 15с — "
+                        "продолжаем без ожидания (мёртвый токен сам остановится "
+                        "по 401-логике, живой даст 409 и обработает его)",
+                        user_id,
+                    )
             stop = threading.Event()
             client = ClientBot(
                 user_id=user_id, token=token, plan="free", active=True, source="db"
