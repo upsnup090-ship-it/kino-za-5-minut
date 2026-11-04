@@ -129,8 +129,12 @@ def send_message(
     """Отправить сообщение. Возвращает объект Message (с message_id).
 
     ``reply_markup`` — dict или JSON-строка инлайн-клавиатуры.
+    По умолчанию ``parse_mode="Markdown"``: тексты экранов используют
+    ``**жирный**`` и ```` `код` ```` — без parse_mode Telegram показывает
+    разметку сырым текстом (нашлось на живой активации 2026-11-04).
+    Явный ``parse_mode`` в kwargs перекрывает дефолт.
     """
-    payload = {"chat_id": chat_id, "text": text, **kwargs}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown", **kwargs}
     markup = payload.get("reply_markup")
     if isinstance(markup, (dict, list)):
         payload["reply_markup"] = json.dumps(markup, ensure_ascii=False)
