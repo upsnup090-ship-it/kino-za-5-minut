@@ -7,8 +7,8 @@ Wants=network-online.target
 # Type=notify: процесс сообщает READY=1, когда цикл готов. Нужен для watchdog.
 Type=notify
 User=kino
-WorkingDirectory=/opt/kino/project
-EnvironmentFile=/opt/kino/.env
+WorkingDirectory=/opt/kino/project/project
+EnvironmentFile=/opt/kino/project/.env
 ExecStart=/opt/kino/project/venv/bin/python -m kino serve
 Restart=always
 RestartSec=30

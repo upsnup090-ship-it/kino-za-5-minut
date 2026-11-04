@@ -80,7 +80,7 @@ cd /opt/kino/project && make update
 ```
 
 `update.sh` синхронизирует код rsync'ом в `/opt/kino/app`, **не трогая**
-боевые `data/`, `logs/`, `venv/`, единый `.env` (`/opt/kino/.env`). `make health` — статус обоих
+боевые `data/`, `logs/`, `venv/`, единый `.env` (`/opt/kino/project/.env`). `make health` — статус обоих
 сервисов и последние события; `make stop` — остановка.
 
 ## Управление

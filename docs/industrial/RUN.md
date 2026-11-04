@@ -6,7 +6,7 @@
 
 ```
 /opt/kino/project/        git-копия: pro_code/ project/ project_ruch/ rrA/ deploy/ scripts/
-/opt/kino/.env            единый боевой конфиг (chmod 600, вне git)
+/opt/kino/project/.env    единый боевой конфиг (chmod 600, вне git)
 /opt/kino/project/data/   БД (clients.db, ruch.db, kino_auto.db, rezerv.db) — вне git
 ```
 
@@ -30,7 +30,7 @@ sudo -u kino venv/bin/pip install -r project/requirements.txt
 ## 3. Конфиг (один раз)
 
 ```bash
-cd /opt/kino
+cd /opt/kino/project
 sudo -u kino nano .env
 sudo chmod 600 .env
 ```
