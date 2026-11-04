@@ -543,7 +543,50 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
         except Exception as exc:
             logger.exception("serve-цикл: ошибка: %s", exc)
 
+        # --- Повторяющиеся сообщения (baseline §5.1): все клиенты, не только auto ---
+        try:
+            _repeating_tick(cfg, db)
+        except Exception as exc:
+            logger.exception("serve-цикл: repeating tick: %s", exc)
+
         time.sleep(SERVE_INTERVAL)
+
+
+def _repeating_tick(cfg: Config, db: ClientsDb) -> None:
+    """Один тик повторяющихся сообщений: все активные клиенты.
+
+    Время сверяется в зоне клиента (та же логика, что и в слотах auto).
+    Публикация — во все каналы с purpose manual/both, ботами клиентов.
+    """
+    from pro_code import repeating_ui
+
+    # Активные клиенты: БД (приоритет) + .env
+    active: list[tuple[int, str]] = []
+    try:
+        for row in db.list_clients():
+            if row.get("status") != "active":
+                continue
+            user_id = int(row["user_id"])
+            tok = db.get_bot_token(user_id)
+            if tok:
+                active.append((user_id, tok))
+    except Exception as exc:
+        logger.error("repeating tick: БД недоступна: %s", exc)
+
+    try:
+        from pro_code.config import _clients_from_env
+        seen = {u for u, _ in active}
+        for client in _clients_from_env().values():
+            if client.user_id not in seen and client.active:
+                active.append((client.user_id, client.token))
+    except Exception as exc:
+        logger.error("repeating tick: .env недоступен: %s", exc)
+
+    for user_id, token in active:
+        try:
+            repeating_ui.due_now(None, user_id, token, db)
+        except Exception as exc:
+            logger.exception("repeating tick: user_id=%d: %s", user_id, exc)
 
 
 def make_spawner(cfg: Config, db: ClientsDb, ruch_db: Any) -> Callable[[int, str], None]:

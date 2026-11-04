@@ -22,7 +22,7 @@
 ## 1. Контекст и baseline
 
 В канале **16 форматов** контента. Реестр — `config/formats.yaml` (ключи `weights`,
-сумма 110) и `docs/todo.md` («Реестр форматов (16)»). Форматы:
+сумма 110) и `todo.md` («Реестр форматов (16)»). Форматы:
 
 | # | format | вес | доставка |
 |---|--------|-----|----------|
@@ -556,7 +556,7 @@ film, director, cast, release, studio, wiki,
 | 4 | review, comparison, riddle, opinion | `rating`-guard, `comparison.verdict`, hints без утечки, `opinion{}` |
 
 Каждая сессия: dry-run, разбор лога (формат, вариация, поля, вердикт судьи), запись находок
-в `docs/todo.md`.
+в `todo.md`.
 
 ---
 

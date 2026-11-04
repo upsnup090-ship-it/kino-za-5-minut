@@ -12,7 +12,8 @@ from typing import Any
 from pro_code.clients_db import ClientsDb
 from pro_code.info import ABOUT_TEXT, FAQ_TEXT
 from pro_code.slots_ui import handle_slots_command
-from pro_code.tg_api import send_message
+from pro_code.tg_api import inline_keyboard, send_message
+from pro_code import backup_ui, repeating_ui, stats_ui
 from project_ruch import dialog as manual_dialog
 from project_ruch.ruch_db import RuchDb
 from rrA.admin_router import handle_owner_command
@@ -22,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 #: Заглушки для модулей (пока не реализованы)
 MODULES_PLACEHOLDER = {
-    "repeating": "🔁 **Повторяющиеся сообщения**\n\nРаздел в разработке.",
-    "stats": "📊 **Статистика**\n\nРаздел в разработке.",
-    "backup": "💾 **Бэкап**\n\nРаздел в разработке.",
     "autoposting": (
         "🤖 **Автопостинг** (план auto)\n\n"
         "📢 `/channels` — каналы (назначение 🤖 автопостинг)\n"
@@ -35,25 +33,36 @@ MODULES_PLACEHOLDER = {
         "В каждом слоте бот публикует один пост во все твои\n"
         "каналы с назначением автопостинг."
     ),
-    "rootA": "👥 **RootA (управление клиентами)**\n\nРаздел в разработке. Только для мастера.",
 }
 
 
-def build_main_menu(plan: str, is_owner: bool = False) -> str:
-    """Адаптивное главное меню: пункты зависят от плана и роли."""
-    lines = ["🏠 **Главное меню**\n"]
-    lines.append("🔁 Повторяющиеся сообщения")
-    lines.append("✍️ Ручной постинг")
-    lines.append("📊 Статистика")
-    lines.append("ℹ️ Инфо")
+def menu_keyboard(plan: str, is_owner: bool = False) -> dict:
+    """Inline-кнопки главного меню по плану (baseline §4, §5)."""
+    rows: list[list[tuple[str, str]]] = [
+        [("🔁 Повторяющиеся", "cb:/repeat"), ("✍️ Ручной постинг", "cb:/post")],
+        [("📊 Статистика", "cb:/stats"), ("💾 Бэкап", "cb:/backup")],
+        [("📢 Мои каналы", "cb:/channels"), ("ℹ️ Инфо", "cb:/info")],
+    ]
     if plan == "auto":
-        lines.append("🤖 Автопостинг (/slots — расписание)")
-    lines.append("")
-    lines.append("📢 /channels — мои каналы")
-    lines.append("🗓 /slots — слоты автопостинга" if plan == "auto" else "")
+        rows.append([("🤖 Автопостинг / слоты", "cb:/slots")])
     if is_owner:
-        lines.append("🛠 /admin — админ-панель")
-    lines = [ln for ln in lines if ln]
+        rows.append([("🛠 Админ-панель", "cb:/admin")])
+    return inline_keyboard(rows)
+
+
+def build_main_menu(plan: str, is_owner: bool = False) -> str:
+    """Адаптивное главное меню: текст + inline-кнопки (см. menu_keyboard)."""
+    lines = ["🏠 **Главное меню**\n"]
+    lines.append("Выбирай кнопку ниже или команду:")
+    lines.append("• `/repeat add` — повторяющиеся сообщения")
+    lines.append("• `/post` — ручной постинг")
+    lines.append("• `/stats` — статистика")
+    lines.append("• `/backup` — лёгкий бэкап")
+    lines.append("• `/channels` — мои каналы")
+    if plan == "auto":
+        lines.append("• `/slots` — слоты автопостинга")
+    if is_owner:
+        lines.append("• `/admin` — админ-панель")
     return "\n".join(lines)
 
 
@@ -182,6 +191,11 @@ def handle_message(
         if _handle_forwarded_message(token, chat_id, user_id, plan, raw_message, clients_db):
             return
 
+    # --- диалог повторяющихся сообщений (поглощает, если активен) ---
+    if ruch_db and clients_db:
+        if repeating_ui.handle_add_dialog(token, chat_id, user_id, text, clients_db, ruch_db):
+            return
+
     # --- диалог ручного постинга (поглощает сообщение, если он активен) ---
     if ruch_db and clients_db:
         if manual_dialog.handle(
@@ -224,11 +238,11 @@ def handle_message(
             "Твой бот активирован. Используй меню ниже.\n\n"
             + build_main_menu(plan, is_owner)
         )
-        send_message(token, chat_id, reply)
+        send_message(token, chat_id, reply, reply_markup=menu_keyboard(plan, is_owner))
         return
 
     if cmd in ("/menu", "/help"):
-        send_message(token, chat_id, build_main_menu(plan, is_owner))
+        send_message(token, chat_id, build_main_menu(plan, is_owner), reply_markup=menu_keyboard(plan, is_owner))
         return
 
     if cmd == "/info":
@@ -352,8 +366,18 @@ def handle_message(
         return
 
     # --- модули-заглушки ---
-    if cmd in ("🔁 повторяющиеся", "повторяющиеся", "repeating"):
-        send_message(token, chat_id, MODULES_PLACEHOLDER["repeating"])
+    if cmd in ("/repeat", "/repeats") or cmd.startswith("/repeat "):
+        repeating_ui.handle(token, chat_id, user_id, text, clients_db, ruch_db)
+        return
+    if cmd in ("🔁 повторяющиеся", "повторяющиеся", "repeating", "🔁"):
+        repeating_ui.handle(token, chat_id, user_id, "/repeat", clients_db, ruch_db)
+        return
+    if cmd in ("/stats", "📊 статистика", "статистика", "stats", "📊"):
+        if clients_db:
+            stats_ui.send_stats(token, chat_id, user_id, clients_db)
+        return
+    if cmd == "/backup" or cmd.startswith("/backup ") or cmd in ("💾 бэкап", "бэкап", "backup", "💾"):
+        backup_ui.handle(token, chat_id, user_id, text)
         return
     if cmd in ("✍️ ручной постинг", "ручной постинг", "manual", "✍️", "/post"):
         if clients_db and ruch_db:
@@ -361,14 +385,8 @@ def handle_message(
         else:
             send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
         return
-    if cmd in ("📊 статистика", "статистика", "stats", "📊"):
-        send_message(token, chat_id, MODULES_PLACEHOLDER["stats"])
-        return
     if cmd in ("ℹ️ инфо", "инфо", "info", "ℹ️"):
         send_message(token, chat_id, ABOUT_TEXT)
-        return
-    if cmd in ("💾 бэкап", "бэкап", "backup", "💾"):
-        send_message(token, chat_id, MODULES_PLACEHOLDER["backup"])
         return
     if cmd in ("🤖 автопостинг", "автопостинг", "autoposting", "🤖"):
         if plan != "auto":
