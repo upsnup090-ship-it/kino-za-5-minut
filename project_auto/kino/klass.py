@@ -87,6 +87,8 @@ SECRET_PATTERNS = (
 PERIMETER_FILES = {
     "AGENT.md": FileClass.ORIG,
     ".gitignore": FileClass.ORIG,
+    ".env": FileClass.SECRET,
+    ".env.example": FileClass.ORIG,
     "_agent_log.md": FileClass.LOG,
 }
 #: Артефакты-архивы в корне периметра: не код, в git не идут (решение
@@ -97,10 +99,25 @@ PERIMETER_PATTERNS = (
     ("*.tar.gz", FileClass.EXCLUDED),
 )
 PERIMETER_DIRS = {
+    # код проекта — оригиналы, в git
+    "pro_code": FileClass.ORIG,
+    "project_auto": FileClass.ORIG,
+    "project_ruch": FileClass.ORIG,
+    "rrA": FileClass.ORIG,
+    "info": FileClass.ORIG,
+    "scripts": FileClass.ORIG,
+    "deploy": FileClass.ORIG,
+    "docs": FileClass.ORIG,
+    # состояние runtime — не редактируется вручную
+    "data": FileClass.STATE,
+    # служебное агента
     "_work": FileClass.DERIV,
+    # окружения и кэши
     "venv": FileClass.EXCLUDED,
     ".git": FileClass.EXCLUDED,
     "__pycache__": FileClass.EXCLUDED,
+    ".pytest_cache": FileClass.EXCLUDED,
+    ".mypy_cache": FileClass.EXCLUDED,
 }
 
 
