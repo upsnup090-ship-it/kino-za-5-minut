@@ -13,13 +13,14 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from pro_code.config import Config, ClientBot
 from pro_code.clients_db import ClientsDb
 from pro_code import access, activation
 from pro_code.crypto import mask as mask_token
 from pro_code.tg_api import (
+    TgAuthError,
     TgConflict,
     TgError,
     answer_callback,
@@ -37,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 #: Задержка между циклами polling при ошибке (сек)
 POLL_BACKOFF = 3.0
+
+#: Сколько 401 подряд пережидаем, прежде чем остановить поток. Токен
+#: отозван/перевыпущен — endless-retry бессмыслен и захламляет журнал.
+MAX_AUTH_ERRORS = 5
 
 #: Интервал serve-цикла (сек)
 SERVE_INTERVAL = 60
@@ -66,11 +71,18 @@ def poll_worker(
     client: ClientBot,
     db: ClientsDb,
     ruch_db: RuchDb,
+    stop_event: threading.Event | None = None,
 ) -> None:
-    """Поток polling для одного бота клиента."""
+    """Поток polling для одного бота клиента.
+
+    ``stop_event`` — кооперативная остановка: диспетчер выставляет его при
+    смене токена (перевыпуск в @BotFather), старый поток завершается между
+    итерациями и на его место поднимается поток с новым токеном.
+    """
     token = client.token
     user_id = client.user_id
     offset: int | None = None
+    stop_event = stop_event or threading.Event()
 
     # Привязка клиента в БД (если нет)
     try:
@@ -86,21 +98,61 @@ def poll_worker(
 
     logger.info("polling запущен для user_id=%d (бот %s)", user_id, mask_token(token))
 
-    while True:
+    auth_errors = 0  # подряд идущие 401 (Unauthorized)
+
+    while not stop_event.is_set():
         try:
             updates = get_updates(token, offset=offset)
+            auth_errors = 0
             for update in updates:
                 offset = int(update.get("update_id", 0)) + 1
                 _dispatch_update(cfg, db, ruch_db, token, user_id, client.plan, update)
         except TgConflict:
             logger.warning("409 Conflict для user_id=%d — другой процесс?", user_id)
             time.sleep(10)
+        except TgAuthError as exc:
+            auth_errors += 1
+            if auth_errors >= MAX_AUTH_ERRORS:
+                logger.error(
+                    "токен user_id=%d недействителен (401 ×%d) — polling остановлен",
+                    user_id, auth_errors,
+                )
+                try:
+                    db.set_status(user_id, "inactive")
+                except Exception:
+                    logger.exception("не удалось пометить user_id=%d inactive", user_id)
+                _notify_admin_token_dead(cfg, user_id)
+                return
+            logger.error("TgError для user_id=%d: %s (попытка %d/%d)", user_id, exc, auth_errors, MAX_AUTH_ERRORS)
+            time.sleep(POLL_BACKOFF)
         except TgError as exc:
+            auth_errors = 0
             logger.error("TgError для user_id=%d: %s", user_id, exc)
             time.sleep(POLL_BACKOFF)
         except Exception as exc:
+            auth_errors = 0
             logger.exception("необработанная ошибка в polling user_id=%d: %s", user_id, exc)
             time.sleep(POLL_BACKOFF)
+
+    logger.info("polling остановлен для user_id=%d (смена токена)", user_id)
+
+
+def _notify_admin_token_dead(cfg: Config, user_id: int) -> None:
+    """Сообщить админу, что токен клиента отозван и бот остановлен."""
+    admin_id = cfg.admin_chat_id
+    if not admin_id or admin_id == user_id:
+        return
+    try:
+        send_message(
+            cfg.master_token, admin_id,
+            f"⛔ **Токен бота клиента недействителен**\n"
+            f"Клиент: `{user_id}`\n"
+            f"401 Unauthorized ×{MAX_AUTH_ERRORS} подряд — polling остановлен.\n"
+            f"Клиент помечен inactive. Для возобновления нужен новый токен "
+            f"(клиент может повторить активацию через мастер-бота).",
+        )
+    except Exception:
+        logger.exception("не удалось уведомить админа о 401 у user_id=%d", user_id)
 
 
 def _dispatch_update(
@@ -494,6 +546,54 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
         time.sleep(SERVE_INTERVAL)
 
 
+def make_spawner(cfg: Config, db: ClientsDb, ruch_db: Any) -> Callable[[int, str], None]:
+    """Фабрика spawn_bot: реестр живых потоков user_id → {thread, token, stop}.
+
+    Нужен, чтобы поднять бота после активации без рестарта, не поднять его
+    дважды — и перезапустить с новым токеном, если клиент перевыпустил токен.
+    """
+
+    registry: dict[int, dict[str, Any]] = {}
+    lock = threading.Lock()
+
+    def spawn_bot(user_id: int, token: str) -> None:
+        """Поднять polling бота клиента.
+
+        Повторный вызов с тем же токеном — no-op. С другим токеном — старый
+        поток останавливается (stop_event) и поднимается новый: иначе поток
+        оставался на мёртвом токене (401-шторм), а живой бот молчал.
+        """
+        with lock:
+            entry = registry.get(user_id)
+            if entry is not None and entry["thread"].is_alive():
+                if entry["token"] == token:
+                    logger.info("бот user_id=%d уже запущен, повтор не нужен", user_id)
+                    return
+                logger.info(
+                    "бот user_id=%d: токен сменился — перезапуск потока", user_id
+                )
+                entry["stop"].set()
+                entry["thread"].join(timeout=10)
+            stop = threading.Event()
+            client = ClientBot(
+                user_id=user_id, token=token, plan="free", active=True, source="db"
+            )
+            row = db.get_client(user_id)
+            if row and row.get("plan") in ("free", "auto"):
+                client.plan = row["plan"]
+            t = threading.Thread(
+                target=poll_worker,
+                args=(cfg, client, db, ruch_db, stop),
+                daemon=True,
+                name=f"bot-{user_id}",
+            )
+            t.start()
+            registry[user_id] = {"thread": t, "token": token, "stop": stop}
+            logger.info("бот user_id=%d запущен (поток %s)", user_id, t.name)
+
+    return spawn_bot
+
+
 def run_dispatcher(cfg: Config) -> None:
     """Запускает диспетчер: главный бот, клиентские боты, serve-цикл."""
     # Объекты БД создаются здесь, но соединение НЕ открывается: оно ленивое
@@ -503,33 +603,10 @@ def run_dispatcher(cfg: Config) -> None:
     db = ClientsDb()
     ruch_db = RuchDb()
 
-    # Реестр живых потоков: user_id → Thread. Нужен, чтобы поднять бота
-    # после активации без рестарта и не поднять его дважды.
-    registry: dict[int, threading.Thread] = {}
-    lock = threading.Lock()
-
-    def spawn_bot(user_id: int, token: str) -> None:
-        """Поднять polling бота клиента. Повторный вызов — no-op."""
-        with lock:
-            existing = registry.get(user_id)
-            if existing is not None and existing.is_alive():
-                logger.info("бот user_id=%d уже запущен, повтор не нужен", user_id)
-                return
-            client = ClientBot(
-                user_id=user_id, token=token, plan="free", active=True, source="db"
-            )
-            row = db.get_client(user_id)
-            if row and row.get("plan") in ("free", "auto"):
-                client.plan = row["plan"]
-            t = threading.Thread(
-                target=poll_worker,
-                args=(cfg, client, db, ruch_db),
-                daemon=True,
-                name=f"bot-{user_id}",
-            )
-            t.start()
-            registry[user_id] = t
-            logger.info("бот user_id=%d запущен (поток %s)", user_id, t.name)
+    # Реестр живых потоков: user_id → {thread, token, stop}. Нужен, чтобы
+    # поднять бота после активации без рестарта, не поднять его дважды — и
+    # перезапустить с новым токеном, если клиент перевыпустил токен.
+    spawn_bot = make_spawner(cfg, db, ruch_db)
 
     # Активация через главного бота поднимает бота этим колбэком.
     activation.set_spawner(spawn_bot)

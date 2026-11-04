@@ -49,6 +49,10 @@ class TgConflict(TgError):
     """409 Conflict — другой процесс уже читает этим токеном."""
 
 
+class TgAuthError(TgError):
+    """401 Unauthorized — токен отозван или неверный (проверить бессмысленно)."""
+
+
 def _api_url(token: str, method: str) -> str:
     return f"{API_BASE}/bot{token}/{method}"
 
@@ -69,6 +73,9 @@ def _request(token: str, method: str, **kwargs: Any) -> dict:
 
     if resp.status_code == 409:
         raise TgConflict("409 Conflict: другой процесс поллит этот токен")
+
+    if resp.status_code == 401:
+        raise TgAuthError("401 Unauthorized: токен недействителен")
 
     if resp.status_code >= 400:
         raise TgError(sanitize(f"HTTP {resp.status_code}: {resp.text[:200]}", token))
