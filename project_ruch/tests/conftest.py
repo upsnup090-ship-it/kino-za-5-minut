@@ -62,3 +62,16 @@ def mock_send(sent_messages):
     with patch("project_ruch.dialog.send_message", side_effect=_fake), \
          patch("pro_code.router.send_message", side_effect=_fake):
         yield sent_messages
+
+
+@pytest.fixture(autouse=True)
+def isolated_reserve_db(tmp_path, monkeypatch):
+    """Изолировать rezerv.db: иначе тесты пишут в боевую data/rezerv.db.
+
+    ``ReserveDb()`` без аргумента берёт ``DB_PATH`` модуля — подменяем его
+    на временный файл, чтобы каждый тест начинал с пустого резерва.
+    """
+    import project_ruch.rezerv_post.rezerv_db as rezerv_mod
+
+    monkeypatch.setattr(rezerv_mod, "DB_PATH", tmp_path / "rezerv.db")
+    yield

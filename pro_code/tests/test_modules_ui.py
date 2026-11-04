@@ -50,7 +50,10 @@ def test_menu_keyboard_owner_has_admin():
 
 def test_build_main_menu_mentions_commands():
     text = build_main_menu("free")
-    assert "/repeat add" in text
+    assert "/repeat" in text
+    assert "/post" in text
+    assert "/posts" in text
+    assert "/reserve" in text
     assert "/stats" in text
     assert "/backup" in text
 

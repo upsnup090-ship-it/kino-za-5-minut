@@ -36,6 +36,8 @@ STATE_IDLE = "idle"
 STATE_CHANNEL = "await_channel"
 STATE_CONTENT = "await_content"
 STATE_CONFIRM = "await_confirm"
+#: Публикация отложенного поста: заново выбираем канал.
+STATE_RESERVE_CHANNEL = "await_reserve_channel"
 
 #: Сколько каналов показывать в выборе.
 MAX_CHANNEL_CHOICES = 10
@@ -43,8 +45,14 @@ MAX_CHANNEL_CHOICES = 10
 #: Сколько постов показывать в /posts.
 POSTS_PAGE = 10
 
+#: Сколько отложенных постов показывать в /reserve.
+RESERVE_PAGE = 10
+
 #: Префикс callback_data кнопок диалога.
 CB_PREFIX = "cb:"
+
+#: Кнопка выхода в главное меню (есть на каждом экране диалога).
+MENU_BUTTON = ("🏠 В меню", f"{CB_PREFIX}/menu")
 
 
 def _send(token: str, chat_id: int, text: str, **kwargs: Any) -> None:
@@ -83,7 +91,7 @@ def _channel_keyboard(channels: list[dict[str, Any]]) -> dict:
         [(_channel_button_label(ch, i), f"{CB_PREFIX}{i}")]
         for i, ch in enumerate(channels[:MAX_CHANNEL_CHOICES], 1)
     ]
-    rows.append([("❌ Отмена", f"{CB_PREFIX}/cancel")])
+    rows.append([("❌ Отмена", f"{CB_PREFIX}/cancel"), MENU_BUTTON])
     return inline_keyboard(rows)
 
 
@@ -91,17 +99,47 @@ def _confirm_keyboard() -> dict:
     return inline_keyboard([
         [("✅ Отправить", f"{CB_PREFIX}/send"), ("✏️ Изменить", f"{CB_PREFIX}/edit")],
         [("⏳ В резерв", f"{CB_PREFIX}/reserve"), ("❌ Отмена", f"{CB_PREFIX}/cancel")],
+        [MENU_BUTTON],
     ])
 
 
 def _content_keyboard() -> dict:
-    return inline_keyboard([[("❌ Отмена", f"{CB_PREFIX}/cancel")]])
+    return inline_keyboard([
+        [("❌ Отмена", f"{CB_PREFIX}/cancel"), MENU_BUTTON],
+    ])
 
 
 def _posts_keyboard() -> dict:
     return inline_keyboard([
         [("✍️ Новый пост", f"{CB_PREFIX}/post"), ("🗑 Удалить последний", f"{CB_PREFIX}/del_last")],
+        [("⏳ Резерв", f"{CB_PREFIX}/reserve"), MENU_BUTTON],
     ])
+
+
+def _posts_actions_keyboard(posts: list[dict[str, Any]]) -> dict:
+    """Кнопки действий под списком постов: удалить/переотправить каждый."""
+    rows: list[list[tuple[str, str]]] = []
+    for p in posts:
+        pid = p["id"]
+        rows.append([
+            (f"🗑 Удалить #{pid}", f"{CB_PREFIX}/post_del_{pid}"),
+            (f"🔁 Переотправить #{pid}", f"{CB_PREFIX}/post_resend_{pid}"),
+        ])
+    rows.append([("✍️ Новый пост", f"{CB_PREFIX}/post"), MENU_BUTTON])
+    return inline_keyboard(rows)
+
+
+def _reserve_keyboard(items: list[dict[str, Any]]) -> dict:
+    """Кнопки действий под списком отложенного: опубликовать/удалить каждый."""
+    rows: list[list[tuple[str, str]]] = []
+    for it in items:
+        rid = it["id"]
+        rows.append([
+            (f"📤 Опубликовать #{rid}", f"{CB_PREFIX}/reserve_pub_{rid}"),
+            (f"🗑 Удалить #{rid}", f"{CB_PREFIX}/reserve_del_{rid}"),
+        ])
+    rows.append([("✍️ Новый пост", f"{CB_PREFIX}/post"), MENU_BUTTON])
+    return inline_keyboard(rows)
 
 
 def start(token: str, chat_id: int, user_id: int, clients_db: ClientsDb, ruch_db: RuchDb) -> None:
@@ -158,6 +196,14 @@ def handle(
         _send(token, chat_id, "❌ Отменено.")
         return True
 
+    # Выход в главное меню: черновик НЕ сбрасываем — клиент может вернуться.
+    if cmd in ("/menu", "🏠 в меню", "в меню", "меню"):
+        _send(
+            token, chat_id,
+            "🏠 Возврат в главное меню. Черновик сохранён — `/post` вернёт к нему.",
+        )
+        return True
+
     if cmd in ("/post", "✍️ новый пост", "новый пост"):
         if state.startswith("repeating:"):
             _send(token, chat_id,
@@ -179,13 +225,39 @@ def handle(
             _send(token, chat_id, f"❌ {result.get('error', 'не удалось удалить')}")
         return True
 
-    if cmd in ("/reserve", "⏳ в резерв", "в резерв"):
-        _to_reserve(token, chat_id, user_id, ruch_db)
+    # --- резерв: список отложенного (кнопка «⏳ Резерв» и /reserve) ---
+    if cmd in ("/reserve", "⏳ резерв", "резерв", "⏳ в резерв", "в резерв"):
+        # Внутри подтверждения «В резерв» — отложить текущий черновик.
+        if state == STATE_CONFIRM:
+            _to_reserve(token, chat_id, user_id, ruch_db)
+            return True
+        _show_reserve(token, chat_id, user_id)
+        return True
+
+    # --- действия над конкретным постом: /post_del_<id>, /post_resend_<id> ---
+    if cmd.startswith("/post_del_"):
+        _delete_post_by_id(token, chat_id, user_id, cmd, ruch_db)
+        return True
+
+    if cmd.startswith("/post_resend_"):
+        _resend_post_by_id(token, chat_id, user_id, cmd, ruch_db)
+        return True
+
+    # --- действия над отложенным: /reserve_pub_<id>, /reserve_del_<id> ---
+    if cmd.startswith("/reserve_pub_"):
+        _reserve_publish_start(token, chat_id, user_id, cmd, clients_db, ruch_db)
+        return True
+
+    if cmd.startswith("/reserve_del_"):
+        _reserve_delete(token, chat_id, user_id, cmd)
         return True
 
     # --- состояния ---
     if state == STATE_CHANNEL:
         return _on_channel(token, chat_id, user_id, text, clients_db, ruch_db)
+
+    if state == STATE_RESERVE_CHANNEL:
+        return _on_reserve_channel(token, chat_id, user_id, text, clients_db, ruch_db)
 
     if state == STATE_CONTENT:
         return _on_content(token, chat_id, user_id, text, ruch_db, raw_message)
@@ -341,21 +413,288 @@ def _on_confirm(
 
 
 def _show_posts(token: str, chat_id: int, user_id: int, ruch_db: RuchDb) -> None:
+    """Список последних постов + кнопки действий над каждым."""
     posts = manual_post.list_posts(ruch_db, user_id, limit=POSTS_PAGE)
     if not posts:
         _send(
             token, chat_id,
-            "📋 Постов пока нет.",
-            reply_markup=inline_keyboard([[("✍️ Новый пост", f"{CB_PREFIX}/post")]]),
+            "📋 **Мои посты**\n\n"
+            "Постов пока нет.\n\n"
+            "Нажми «✍️ Новый пост», чтобы создать первый.",
+            reply_markup=_posts_keyboard(),
         )
         return
     icon = {"sent": "✅", "draft": "📝", "failed": "❌"}
-    lines = ["📋 **Последние посты**\n"]
+    lines = ["📋 **Мои посты** (последние %d)\n" % len(posts)]
     for p in posts:
         mark = icon.get(p["status"], "•")
         preview = (p.get("text") or "")[:60].replace("\n", " ")
-        lines.append(f"{mark} `#{p['id']}` → `{p['channel_chat_id']}` — {preview}")
-    _send(token, chat_id, "\n".join(lines), reply_markup=_posts_keyboard())
+        media = f" 📎{p['media_type']}" if p.get("media_type") not in (None, "text") else ""
+        lines.append(
+            f"{mark} `#{p['id']}` → `{p['channel_chat_id']}`{media} — {preview}"
+        )
+    lines.append("")
+    lines.append("Действия — кнопками ниже.")
+    _send(token, chat_id, "\n".join(lines), reply_markup=_posts_actions_keyboard(posts))
+
+
+def _show_reserve(token: str, chat_id: int, user_id: int) -> None:
+    """Список отложенных постов + кнопки «Опубликовать»/«Удалить»."""
+    from project_ruch import reserve as reserve_mod
+
+    items = reserve_mod.list_pending(user_id)
+    if not items:
+        _send(
+            token, chat_id,
+            "⏳ **Резерв**\n\n"
+            "Отложенных постов нет.\n\n"
+            "Отложить можно на шаге подтверждения поста — кнопка «⏳ В резерв».\n"
+            "Отложенное хранится 48 часов.",
+            reply_markup=_posts_keyboard(),
+        )
+        return
+
+    lines = [f"⏳ **Резерв** — отложено {len(items)}\n"]
+    for it in items[:RESERVE_PAGE]:
+        preview = (it.get("text") or "")[:60].replace("\n", " ")
+        media = f" 📎{it['media_type']}" if it.get("media_type") not in (None, "text") else ""
+        expires = (it.get("expires_at") or "")[:16].replace("T", " ")
+        lines.append(f"• `#{it['id']}`{media} — {preview}")
+        lines.append(f"    ⏱ до {expires}")
+    lines.append("")
+    lines.append("📤 «Опубликовать» — спрошу канал и отправлю.")
+    lines.append("🗑 «Удалить» — убрать из резерва.")
+    _send(
+        token, chat_id, "\n".join(lines),
+        reply_markup=_reserve_keyboard(items[:RESERVE_PAGE]),
+    )
+
+
+def _parse_id(cmd: str, prefix: str) -> int | None:
+    """Достать числовой id из команды вида /prefix_<id>."""
+    raw = cmd[len(prefix):].strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _delete_post_by_id(
+    token: str, chat_id: int, user_id: int, cmd: str, ruch_db: RuchDb,
+) -> None:
+    """Удалить конкретный пост по id (из канала и из БД)."""
+    from pro_code.tg_api import delete_message
+
+    post_id = _parse_id(cmd, "/post_del_")
+    if post_id is None:
+        _send(token, chat_id, "❌ Не понял номер поста.")
+        return
+
+    post = ruch_db.get_post(post_id)
+    if not post or int(post["user_id"]) != user_id:
+        _send(token, chat_id, f"❌ Пост `#{post_id}` не найден.")
+        return
+
+    msg_id = ruch_db.get_message_id(post_id)
+    deleted = False
+    if msg_id:
+        deleted = delete_message(token, post["channel_chat_id"], msg_id)
+    ruch_db.delete_post(post_id)
+
+    if msg_id and not deleted:
+        _send(
+            token, chat_id,
+            f"🗑 Пост `#{post_id}` удалён из базы.\n"
+            "⚠️ Из канала удалить не удалось (нет прав или сообщение уже удалено).",
+            reply_markup=_posts_keyboard(),
+        )
+    else:
+        _send(
+            token, chat_id,
+            f"🗑 Пост `#{post_id}` удалён.",
+            reply_markup=_posts_keyboard(),
+        )
+
+
+def _resend_post_by_id(
+    token: str, chat_id: int, user_id: int, cmd: str, ruch_db: RuchDb,
+) -> None:
+    """Переотправить конкретный пост в его канал."""
+    post_id = _parse_id(cmd, "/post_resend_")
+    if post_id is None:
+        _send(token, chat_id, "❌ Не понял номер поста.")
+        return
+
+    post = ruch_db.get_post(post_id)
+    if not post or int(post["user_id"]) != user_id:
+        _send(token, chat_id, f"❌ Пост `#{post_id}` не найден.")
+        return
+
+    # Новый черновик из старого поста — публикуем заново.
+    new_id = ruch_db.add_manual_post(
+        user_id=user_id,
+        channel_chat_id=post["channel_chat_id"],
+        text=post.get("text") or "",
+        media_type=post.get("media_type") or "text",
+        media_path=post.get("media_path"),
+        parse_mode=post.get("parse_mode") or "HTML",
+    )
+    result = manual_post.publish_post(ruch_db, new_id, token)
+    if result.get("ok"):
+        _send(
+            token, chat_id,
+            f"🔁 Пост `#{post_id}` переотправлен "
+            f"(новый `#{new_id}`, message_id={result.get('message_id')}).",
+            reply_markup=_posts_keyboard(),
+        )
+    else:
+        _send(
+            token, chat_id,
+            f"❌ Не удалось переотправить `#{post_id}`: {result.get('error')}",
+            reply_markup=_posts_keyboard(),
+        )
+
+
+def _reserve_publish_start(
+    token: str, chat_id: int, user_id: int, cmd: str,
+    clients_db: ClientsDb, ruch_db: RuchDb,
+) -> None:
+    """Кнопка «Опубликовать #N»: спросить канал и запомнить, что публикуем."""
+    from project_ruch import reserve as reserve_mod
+
+    reserve_id = _parse_id(cmd, "/reserve_pub_")
+    if reserve_id is None:
+        _send(token, chat_id, "❌ Не понял номер отложенного поста.")
+        return
+
+    items = reserve_mod.list_pending(user_id)
+    item = next((i for i in items if int(i["id"]) == reserve_id), None)
+    if item is None:
+        _send(
+            token, chat_id,
+            f"❌ Отложенный пост `#{reserve_id}` не найден или истёк.",
+            reply_markup=_posts_keyboard(),
+        )
+        return
+
+    channels = _manual_channels(clients_db, user_id)
+    if not channels:
+        _send(
+            token, chat_id,
+            "❌ Нет каналов для ручного постинга.\n"
+            "Перешли пост из своего канала или `/add_manual <chat_id>`.",
+        )
+        return
+
+    # Запоминаем, какой отложенный пост публикуем (в extra черновика).
+    import json as _json
+    ruch_db.save_draft(
+        user_id,
+        state=STATE_RESERVE_CHANNEL,
+        channel_chat_id=None,
+        text="",
+        media_type="text",
+        media_path=None,
+        post_id=None,
+        extra=_json.dumps({"reserve_id": reserve_id}),
+    )
+
+    preview = (item.get("text") or "")[:200]
+    lines = [
+        f"📤 **Публикация отложенного `#{reserve_id}`**\n",
+        f"---\n{preview}\n---\n",
+        "Куда публикуем?\n",
+    ]
+    for i, ch in enumerate(channels[:MAX_CHANNEL_CHOICES], 1):
+        lines.append(f"{i}. {_channel_label(ch)}")
+    lines.append("")
+    lines.append("Нажми кнопку или отправь номер канала.")
+    _send(token, chat_id, "\n".join(lines), reply_markup=_channel_keyboard(channels))
+
+
+def _on_reserve_channel(
+    token: str, chat_id: int, user_id: int, text: str,
+    clients_db: ClientsDb, ruch_db: RuchDb,
+) -> bool:
+    """Выбор канала для публикации отложенного поста."""
+    import json as _json
+    from project_ruch import reserve as reserve_mod
+
+    channels = _manual_channels(clients_db, user_id)
+    raw = text.strip()
+    try:
+        idx = int(raw) - 1
+    except ValueError:
+        _send(
+            token, chat_id,
+            "❌ Отправь номер канала из списка или нажми кнопку.",
+            reply_markup=_channel_keyboard(channels),
+        )
+        return True
+
+    if idx < 0 or idx >= min(len(channels), MAX_CHANNEL_CHOICES):
+        _send(
+            token, chat_id,
+            "❌ Нет такого номера.",
+            reply_markup=_channel_keyboard(channels),
+        )
+        return True
+
+    draft = ruch_db.get_draft(user_id) or {}
+    try:
+        reserve_id = int(_json.loads(draft.get("extra") or "{}").get("reserve_id"))
+    except (TypeError, ValueError):
+        ruch_db.clear_draft(user_id)
+        _send(token, chat_id, "❌ Потерял, что публикуем. Открой `/reserve` заново.")
+        return True
+
+    ch = channels[idx]
+    result = reserve_mod.publish_by_id(
+        ruch_db, user_id, token, ch["chat_id"], reserve_id,
+    )
+    ruch_db.clear_draft(user_id)
+
+    if result.get("ok"):
+        _send(
+            token, chat_id,
+            f"✅ Отложенный `#{reserve_id}` опубликован в {_channel_label(ch)}\n"
+            f"(message_id={result.get('message_id')}).",
+            reply_markup=_posts_keyboard(),
+        )
+    else:
+        _send(
+            token, chat_id,
+            f"❌ Не опубликовано: {result.get('error')}",
+            reply_markup=_posts_keyboard(),
+        )
+    return True
+
+
+def _reserve_delete(token: str, chat_id: int, user_id: int, cmd: str) -> None:
+    """Кнопка «Удалить #N»: убрать отложенный пост из резерва."""
+    from project_ruch.rezerv_post.rezerv_db import ReserveDb
+
+    reserve_id = _parse_id(cmd, "/reserve_del_")
+    if reserve_id is None:
+        _send(token, chat_id, "❌ Не понял номер отложенного поста.")
+        return
+
+    reserve = ReserveDb()
+    try:
+        item = reserve.get(reserve_id)
+        if not item or int(item.get("user_id")) != user_id:
+            _send(
+                token, chat_id,
+                f"❌ Отложенный пост `#{reserve_id}` не найден.",
+                reply_markup=_posts_keyboard(),
+            )
+            return
+        reserve.delete(reserve_id)
+    finally:
+        reserve.close()
+
+    _send(
+        token, chat_id,
+        f"🗑 Отложенный пост `#{reserve_id}` удалён из резерва.",
+        reply_markup=_posts_keyboard(),
+    )
 
 
 def _to_reserve(token: str, chat_id: int, user_id: int, ruch_db: RuchDb) -> None:

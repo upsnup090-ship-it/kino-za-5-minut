@@ -185,8 +185,10 @@ def test_channel_keyboard_limits_to_ten(ruch_db, clients_db, mock_send):
         clients_db.add_channel(1, -100000 - i, f"ch{i}", "channel", purpose="manual")
     dialog.start("T", 1, 1, clients_db, ruch_db)
     callbacks = _callbacks(mock_send[-1]["reply_markup"])
-    # 10 каналов + отмена
-    assert len(callbacks) == 11
+    # 10 каналов + «Отмена» + «В меню»
+    assert len(callbacks) == 12
+    assert "cb:/cancel" in callbacks
+    assert "cb:/menu" in callbacks
 
 
 def test_channel_button_callback_selects(ruch_db, client_with_channel, mock_send):
@@ -262,3 +264,159 @@ def test_callback_data_prefix(ruch_db, client_with_channel, mock_send):
     dialog.start("T", 1, 1, client_with_channel, ruch_db)
     for data in _callbacks(mock_send[-1]["reply_markup"]):
         assert data.startswith(dialog.CB_PREFIX)
+
+
+# --- кнопка «В меню» -------------------------------------------------------
+
+
+def test_menu_button_on_channel_screen(ruch_db, client_with_channel, mock_send):
+    dialog.start("T", 1, 1, client_with_channel, ruch_db)
+    callbacks = _callbacks(mock_send[-1]["reply_markup"])
+    assert "cb:/menu" in callbacks
+
+
+def test_menu_button_on_content_screen(ruch_db, client_with_channel, mock_send):
+    dialog.start("T", 1, 1, client_with_channel, ruch_db)
+    _run("T", 1, 1, "1", client_with_channel, ruch_db)
+    assert "cb:/menu" in _callbacks(mock_send[-1]["reply_markup"])
+
+
+def test_menu_button_on_confirm_screen(ruch_db, client_with_channel, mock_send):
+    dialog.start("T", 1, 1, client_with_channel, ruch_db)
+    _run("T", 1, 1, "1", client_with_channel, ruch_db)
+    _run("T", 1, 1, "text", client_with_channel, ruch_db)
+    assert "cb:/menu" in _callbacks(mock_send[-1]["reply_markup"])
+
+
+def test_menu_command_keeps_draft(ruch_db, client_with_channel, mock_send):
+    """«В меню» не сбрасывает черновик — можно вернуться."""
+    dialog.start("T", 1, 1, client_with_channel, ruch_db)
+    _run("T", 1, 1, "1", client_with_channel, ruch_db)
+    _run("T", 1, 1, "/menu", client_with_channel, ruch_db)
+    assert ruch_db.get_draft(1) is not None
+    assert ruch_db.get_draft(1)["state"] == dialog.STATE_CONTENT
+
+
+# --- резерв: список и действия ---------------------------------------------
+
+
+def _add_reserve(user_id: int, text: str = "отложенный") -> int:
+    from project_ruch.rezerv_post.rezerv_db import ReserveDb
+    db = ReserveDb()
+    try:
+        return db.add(user_id=user_id, text=text, source="manual")
+    finally:
+        db.close()
+
+
+def test_reserve_empty_shows_hint(ruch_db, client_with_channel, mock_send):
+    _run("T", 1, 1, "/reserve", client_with_channel, ruch_db)
+    assert "Отложенных постов нет" in mock_send[-1]["text"]
+
+
+def test_reserve_lists_items_with_buttons(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(1, "пост в резерве")
+    _run("T", 1, 1, "/reserve", client_with_channel, ruch_db)
+    text = mock_send[-1]["text"]
+    assert f"#{rid}" in text
+    assert "пост в резерве" in text
+    callbacks = _callbacks(mock_send[-1]["reply_markup"])
+    assert f"cb:/reserve_pub_{rid}" in callbacks
+    assert f"cb:/reserve_del_{rid}" in callbacks
+
+
+def test_reserve_delete_removes_item(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(1)
+    _run("T", 1, 1, f"/reserve_del_{rid}", client_with_channel, ruch_db)
+    assert "удалён из резерва" in mock_send[-1]["text"]
+    from project_ruch.rezerv_post.rezerv_db import ReserveDb
+    db = ReserveDb()
+    try:
+        assert db.get(rid) is None
+    finally:
+        db.close()
+
+
+def test_reserve_delete_foreign_item_rejected(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(999)  # чужой
+    _run("T", 1, 1, f"/reserve_del_{rid}", client_with_channel, ruch_db)
+    assert "не найден" in mock_send[-1]["text"]
+
+
+def test_reserve_publish_asks_channel(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(1, "публикуем")
+    _run("T", 1, 1, f"/reserve_pub_{rid}", client_with_channel, ruch_db)
+    assert "Куда публикуем" in mock_send[-1]["text"]
+    assert ruch_db.get_draft(1)["state"] == dialog.STATE_RESERVE_CHANNEL
+    callbacks = _callbacks(mock_send[-1]["reply_markup"])
+    assert "cb:1" in callbacks
+
+
+def test_reserve_publish_full_flow(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(1, "текст из резерва")
+    _run("T", 1, 1, f"/reserve_pub_{rid}", client_with_channel, ruch_db)
+    with patch("project_ruch.manual_post.send_message",
+               return_value={"message_id": 55}):
+        _run("T", 1, 1, "1", client_with_channel, ruch_db)
+    assert "опубликован" in mock_send[-1]["text"]
+    assert ruch_db.get_draft(1) is None
+    posts = ruch_db.list_manual_posts(1)
+    assert any(p["text"] == "текст из резерва" for p in posts)
+
+
+def test_reserve_publish_marks_used(ruch_db, client_with_channel, mock_send):
+    rid = _add_reserve(1, "одноразовый")
+    _run("T", 1, 1, f"/reserve_pub_{rid}", client_with_channel, ruch_db)
+    with patch("project_ruch.manual_post.send_message",
+               return_value={"message_id": 56}):
+        _run("T", 1, 1, "1", client_with_channel, ruch_db)
+    from project_ruch.rezerv_post.rezerv_db import ReserveDb
+    db = ReserveDb()
+    try:
+        assert db.get(rid)["status"] == "used"
+    finally:
+        db.close()
+
+
+# --- /posts с действиями ---------------------------------------------------
+
+
+def _make_sent_post(ruch_db, clients_db, text: str = "пост") -> int:
+    dialog.start("T", 1, 1, clients_db, ruch_db)
+    _run("T", 1, 1, "1", clients_db, ruch_db)
+    _run("T", 1, 1, text, clients_db, ruch_db)
+    with patch("project_ruch.manual_post.send_message",
+               return_value={"message_id": 77}):
+        _run("T", 1, 1, "/send", clients_db, ruch_db)
+    return ruch_db.list_manual_posts(1)[0]["id"]
+
+
+def test_posts_list_has_action_buttons(ruch_db, client_with_channel, mock_send):
+    pid = _make_sent_post(ruch_db, client_with_channel)
+    _run("T", 1, 1, "/posts", client_with_channel, ruch_db)
+    callbacks = _callbacks(mock_send[-1]["reply_markup"])
+    assert f"cb:/post_del_{pid}" in callbacks
+    assert f"cb:/post_resend_{pid}" in callbacks
+
+
+def test_post_delete_by_id(ruch_db, client_with_channel, mock_send):
+    pid = _make_sent_post(ruch_db, client_with_channel)
+    with patch("pro_code.tg_api.delete_message", return_value=True):
+        _run("T", 1, 1, f"/post_del_{pid}", client_with_channel, ruch_db)
+    assert "удалён" in mock_send[-1]["text"]
+    assert ruch_db.get_post(pid) is None
+
+
+def test_post_delete_foreign_rejected(ruch_db, client_with_channel, mock_send):
+    _run("T", 1, 1, "/post_del_99999", client_with_channel, ruch_db)
+    assert "не найден" in mock_send[-1]["text"]
+
+
+def test_post_resend_creates_new_post(ruch_db, client_with_channel, mock_send):
+    pid = _make_sent_post(ruch_db, client_with_channel, "переотправить меня")
+    with patch("project_ruch.manual_post.send_message",
+               return_value={"message_id": 88}):
+        _run("T", 1, 1, f"/post_resend_{pid}", client_with_channel, ruch_db)
+    assert "переотправлен" in mock_send[-1]["text"]
+    posts = ruch_db.list_manual_posts(1)
+    assert len(posts) == 2

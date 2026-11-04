@@ -101,6 +101,13 @@ class ReserveDb:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get(self, reserve_id: int) -> dict[str, Any] | None:
+        """Один отложенный пост по id (любой статус)."""
+        row = self.conn.execute(
+            "SELECT * FROM reserve WHERE id = ?", (reserve_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
     def take_next(self, user_id: int) -> dict[str, Any] | None:
         now = self._now()
         row = self.conn.execute(

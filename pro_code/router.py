@@ -41,7 +41,8 @@ def menu_keyboard(plan: str, is_owner: bool = False) -> dict:
     rows: list[list[tuple[str, str]]] = [
         [("🔁 Повторяющиеся", "cb:/repeat"), ("✍️ Ручной постинг", "cb:/post")],
         [("📊 Статистика", "cb:/stats"), ("💾 Бэкап", "cb:/backup")],
-        [("📢 Мои каналы", "cb:/channels"), ("ℹ️ Инфо", "cb:/info")],
+        [("📢 Мои каналы", "cb:/channels"), ("⏳ Резерв", "cb:/reserve")],
+        [("ℹ️ Инфо", "cb:/info")],
     ]
     if plan == "auto":
         rows.append([("🤖 Автопостинг / слоты", "cb:/slots")])
@@ -54,8 +55,10 @@ def build_main_menu(plan: str, is_owner: bool = False) -> str:
     """Адаптивное главное меню: текст + inline-кнопки (см. menu_keyboard)."""
     lines = ["🏠 **Главное меню**\n"]
     lines.append("Выбирай кнопку ниже или команду:")
-    lines.append("• `/repeat add` — повторяющиеся сообщения")
+    lines.append("• `/repeat` — повторяющиеся сообщения")
     lines.append("• `/post` — ручной постинг")
+    lines.append("• `/posts` — мои посты (удалить/переотправить)")
+    lines.append("• `/reserve` — отложенные посты")
     lines.append("• `/stats` — статистика")
     lines.append("• `/backup` — лёгкий бэкап")
     lines.append("• `/channels` — мои каналы")
@@ -384,6 +387,17 @@ def handle_message(
             manual_dialog.start(token, chat_id, user_id, clients_db, ruch_db)
         else:
             send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
+        return
+    # Резерв и действия над постами — в диалог ручного постинга.
+    if cmd in ("⏳ резерв", "резерв", "/reserve") or cmd.startswith(
+        ("/reserve_pub_", "/reserve_del_", "/post_del_", "/post_resend_", "/posts", "/del_last")
+    ):
+        if clients_db and ruch_db:
+            if manual_dialog.handle(
+                token, chat_id, user_id, text, clients_db, ruch_db, raw_message=raw_message
+            ):
+                return
+        send_message(token, chat_id, "⏳ **Резерв**\n\nМодуль недоступен.")
         return
     if cmd in ("ℹ️ инфо", "инфо", "info", "ℹ️"):
         send_message(token, chat_id, ABOUT_TEXT)

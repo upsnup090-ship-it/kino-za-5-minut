@@ -83,6 +83,45 @@ def publish_next(
     if not item:
         return {"ok": False, "error": "резерв пуст"}
 
+    return _publish_item(ruch_db, user_id, token, channel_chat_id, item)
+
+
+def publish_by_id(
+    ruch_db: RuchDb,
+    user_id: int,
+    token: str,
+    channel_chat_id: int,
+    reserve_id: int,
+) -> dict[str, Any]:
+    """Опубликовать конкретный отложенный пост (по id) в выбранный канал.
+
+    Возвращает ``{ok, post_id, message_id, error}``. Если записи нет или она
+    не принадлежит клиенту — ``{ok: False, error: ...}``.
+    """
+    reserve = ReserveDb()
+    try:
+        item = reserve.get(reserve_id)
+    finally:
+        reserve.close()
+
+    if not item:
+        return {"ok": False, "error": f"отложенный пост #{reserve_id} не найден"}
+    if int(item.get("user_id")) != user_id:
+        return {"ok": False, "error": f"отложенный пост #{reserve_id} не твой"}
+    if item.get("status") != "pending":
+        return {"ok": False, "error": f"отложенный пост #{reserve_id} уже использован"}
+
+    return _publish_item(ruch_db, user_id, token, channel_chat_id, item)
+
+
+def _publish_item(
+    ruch_db: RuchDb,
+    user_id: int,
+    token: str,
+    channel_chat_id: int,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    """Общая публикация отложенного поста: черновик → manual_post.publish_post."""
     post_id = ruch_db.add_manual_post(
         user_id=user_id,
         channel_chat_id=channel_chat_id,
@@ -94,7 +133,23 @@ def publish_next(
     result = manual_post.publish_post(ruch_db, post_id, token)
     result["post_id"] = post_id
     result["reserve_id"] = item["id"]
+    if result.get("ok"):
+        # Отметить запись использованной, чтобы не публиковать дважды.
+        _mark_used(item["id"])
     return result
+
+
+def _mark_used(reserve_id: int) -> None:
+    """Пометить запись резерва использованной (status='used')."""
+    reserve = ReserveDb()
+    try:
+        reserve.conn.execute(
+            "UPDATE reserve SET status = 'used', used_at = ? WHERE id = ?",
+            (reserve._now(), reserve_id),
+        )
+        reserve.conn.commit()
+    finally:
+        reserve.close()
 
 
 def purge_expired() -> int:
