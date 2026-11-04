@@ -25,8 +25,8 @@ from pro_code.crypto import mask as _mask_token
 _TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{25,}")
 _BOT_URL_RE = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
 
-#: Замена, которую видит человек.
-REDACTED = "***"
+#: Замена, которую видит человек (синхронизировано с kino/logging_util.py).
+REDACTED = "bot***"
 
 
 def sanitize(text: str, token: str | None = None) -> str:

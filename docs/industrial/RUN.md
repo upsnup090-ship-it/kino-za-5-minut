@@ -1,6 +1,10 @@
-# Запуск диспетчера на сервере — пошагово
+# Запуск на сервере — пошаговая инструкция
 
-*Краткая выжимка. Подробности — `deploy/README.md` (он в git, едет с кодом).*
+*Сводный документ: от разворачивания с нуля до обновления кода.*
+*Справочник переменных `.env` — `docs/industrial/deploy.md`.*
+*Детали юнитов — `deploy/README.md` (диспетчер) и `project/deploy/README.md` (Kino).*
+
+---
 
 ## 0. Что где лежит
 
@@ -14,14 +18,15 @@
 Пути — от корня `/opt/kino/project` (внутри ЗИПа папка называется `project/`,
 поэтому БД Kino — во вложенном `project/data/`).
 
-## 1. Обновить код
+## 1. Пользователь и код
 
 ```bash
-cd /opt/kino/project
-sudo -u kino git pull origin main
+sudo useradd -r -m -d /opt/kino kino
+# скопировать код в /opt/kino/project (git clone / распаковать ЗИП)
+sudo chown -R kino:kino /opt/kino/project
 ```
 
-## 2. Окружение (один раз)
+## 2. Окружение
 
 ```bash
 cd /opt/kino/project
@@ -31,7 +36,7 @@ sudo -u kino venv/bin/pip install -r pro_code/requirements.txt
 sudo -u kino venv/bin/pip install -r project/requirements.txt
 ```
 
-## 3. Конфиг (один раз)
+## 3. Конфиг
 
 ```bash
 cd /opt/kino/project
@@ -40,19 +45,21 @@ sudo chmod 600 .env
 ```
 
 Обязательные ключи: `ADMIN_CHAT_ID`, `MASTER_BOT_TOKEN`, `TOKEN_ENCRYPTION_KEY`
-(последний — обязателен при использовании модели A: клиент активирует бота
-через `/start`, токен хранится в `clients.db` зашифрованным).
-Для автопостинга (клиенты с планом `auto`): `BOT_TOKEN`, `CHANNEL_CHAT_ID`,
-`LLM_PROVIDER=openrouter`, `LLM_BASE_URL=https://ai.reqline.ru/v1`,
-`OPENROUTER_API_KEY`. Прокси: `PROXY_URL`/`GRAPH_PROXY_URL` — `api.graph.org`
-напрямую из сети сервера не отвечает. Полный шаблон — `/workspace/.env.example`.
+(последний обязателен при модели A — клиент активирует бота через `/start`).
 
-## 4. Данные (если переезд)
+Для автопостинга клиентов (план `auto`): `BOT_TOKEN`, `CHANNEL_CHAT_ID`,
+`LLM_PROVIDER=openrouter`, `LLM_BASE_URL=https://ai.reqline.ru/v1`,
+`OPENROUTER_API_KEY`.
+
+Полный список — см. `docs/industrial/deploy.md` и шаблон `.env.example`.
+
+`TOKEN_ENCRYPTION_KEY` **не менять** после того, как клиенты завели токены —
+иначе они вставляют токены заново.
+
+## 4. Данные (при переезде)
 
 ```bash
-# источник указываем явно — например, перенос со старого хоста
 rsync -av /path/to/old/data/ /opt/kino/project/data/
-# БД Kino — отдельно, она во вложенном project/data/
 rsync -av /path/to/old/project/data/ /opt/kino/project/project/data/
 ```
 
@@ -62,10 +69,20 @@ rsync -av /path/to/old/project/data/ /opt/kino/project/project/data/
 sudo -u kino venv/bin/python scripts/smoke.py
 ```
 
-Все строки `[PASS]` → можно стартовать. Хотя бы один `[FAIL]` → смотри
-пояснение в той же строке, чинить до запуска.
+Все `[PASS]` → можно стартовать. Хотя бы один `[FAIL]` → чинить до запуска.
 
-## 6. Юниты (3 штуки) и старт
+## 6. Сетка слотов Kino (один раз)
+
+Автопостинг Kino публикует по расписанию из БД — без слотов не выйдет ничего:
+
+```bash
+cd /opt/kino/project/project
+sudo -u kino ../venv/bin/python -m kino schedule seed
+```
+
+Правка слотов потом — через админ-бота (`kino-admin`) или `/slot add` / `/slot del`.
+
+## 7. Юниты (3 штуки) и старт
 
 ```bash
 cd /opt/kino/project
@@ -81,34 +98,24 @@ sudo systemctl enable --now kino-dispatcher kino kino-admin
 | `kino` | автопостинг Kino (`kino serve`) — канал владельца |
 | `kino-admin` | админ-бот расписания (`kino admin`) |
 
-## 6.1. Сетка слотов (один раз)
+> **Канонический источник `kino-dispatcher.service`:** `deploy/kino-dispatcher.service`.
+> Копия в `project/deploy/` — синхронизированная; править только
+> `deploy/kino-dispatcher.service`, затем копировать в `project/deploy/`.
 
-Автопостинг Kino публикует по расписанию из БД — без слотов не выйдет
-ничего:
-
-```bash
-cd /opt/kino/project/project
-sudo -u kino ../venv/bin/python -m kino schedule seed
-```
-
-Правка слотов потом — через админ-бота (`kino-admin`, инлайн-календарь
-в личке) или `/slot add` / `/slot del`.
-
-## 7. Что смотреть
+## 8. Что смотреть
 
 ```bash
-systemctl status kino-dispatcher
+systemctl status kino-dispatcher kino kino-admin
 journalctl -u kino-dispatcher -n 100 --no-pager
 ```
 
-Ожидаемые строки в логе:
-
+Ожидаемые строки в логе диспетчера:
 - `конфиг загружен: admin=…, клиентов=N`
 - `polling запущен для user_id=…` — по строке на каждого клиента
 - `serve-цикл запущен (интервал 60с)`
 - `главный бот запущен` — если задан `MASTER_BOT_TOKEN`
 
-## 8. Обновление кода в дальнейшем
+## 9. Обновление кода
 
 ```bash
 cd /opt/kino/project && sudo -u kino git pull origin main
@@ -121,6 +128,6 @@ sudo systemctl restart kino-dispatcher
 |---|---|
 | `ConfigError: ADMIN_CHAT_ID не задан` | пусто в `.env` |
 | `Permission denied` при pip | `venv` создан от root → `sudo chown -R kino:kino venv` |
-| `бот молчит`, в логе `409 Conflict` | один токен поллят два процесса (не запущены два экземпляра?) |
-| `SQLite objects created in a thread` | на сервере старый код (до аудита) → `git pull` |
-| `Kino недоступен` | не поставлен `project/requirements.txt` |
+| бот молчит, в логе `409 Conflict` | один токен поллят два процесса |
+| `SQLite objects created in a thread` | на сервере старый код → `git pull` |
+| `Kino недоступен` | не установлен `project/requirements.txt` |

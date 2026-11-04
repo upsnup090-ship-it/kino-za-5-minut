@@ -1,20 +1,25 @@
 [Unit]
-Description=Kino za 5 minut — bot dispatcher (pro_code)
+Description=Kino dispatcher — боты клиентов (Ruch) + serve-цикл автопостинга
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=kino
+Group=kino
 WorkingDirectory=/opt/kino/project
 EnvironmentFile=/opt/kino/project/.env
 ExecStart=/opt/kino/project/venv/bin/python -m pro_code.main
 Restart=always
-RestartSec=15
+RestartSec=30
+# Мягкая остановка: диспетчер закрывает соединения БД (close_all) и выходит.
 KillSignal=SIGTERM
 TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
+# Диспетчеру нужны запись в data/ и сеть к api.telegram.org — не больше.
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

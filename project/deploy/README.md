@@ -1,4 +1,8 @@
-# Развёртывание 24/7 на VPS
+# Деплой Kino serve + admin (автопостинг канала владельца)
+
+> **Полная инструкция «с нуля»:** `docs/industrial/RUN.md`.
+> **Справочник переменных `.env`:** `docs/industrial/deploy.md`.
+> **Диспетчер ботов клиентов:** `deploy/README.md`.
 
 Два systemd-сервиса:
 
@@ -18,19 +22,7 @@
 - Единый `.env` заполнен реальными значениями (шаблон: `/workspace/.env.example`).
 - Виртуальное окружение создано: `venv/`.
 
-## Шаг 1. Пользователь
-
-Запускаем от обычного пользователя, не root:
-
-```bash
-sudo useradd -r -m -d /opt/kino kino
-sudo chown -R kino:kino /opt/kino/project
-```
-
-Если проект не в `/opt/kino/project` — поменяй `WorkingDirectory` и `ExecStart`
-в обоих юнитах.
-
-## Шаг 2. Сетка слотов в БД
+## Шаг 1. Сетка слотов в БД
 
 Режим `slots` читает расписание из `data/kino.db`. Заполнить его нужно один
 раз, до первого старта в этом режиме:
@@ -43,7 +35,7 @@ sudo -u kino venv/bin/python -m kino schedule list
 
 Повторный `seed` ничего не дублирует и не воскрешает удалённые слоты.
 
-## Шаг 3. Установка юнитов
+## Шаг 2. Установка юнитов
 
 ```bash
 sudo cp deploy/kino.service deploy/kino-admin.service /etc/systemd/system/
@@ -51,7 +43,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now kino kino-admin
 ```
 
-## Шаг 4. Проверка
+## Шаг 3. Проверка
 
 ```bash
 sudo systemctl status kino kino-admin     # оба active (running)
@@ -62,35 +54,6 @@ systemctl show kino -p WatchdogUSec       # WatchdogUSec=3min
 
 В `systemctl status kino` строка `Status:` показывает, что процесс сам
 сообщил: `режим slots, слотов 13` или `режим windows, окон 2`.
-
-## Обновление кода на сервере (обычный цикл)
-
-Боевой код живёт в `/opt/kino/app` (не git!). Git-копия — отдельно, служит
-источником обновлений. Цикл обновления:
-
-```bash
-cd /opt/kino/project && sudo -u kino git pull origin main
-sudo -u kino /opt/kino/app/deploy/update.sh --restart
-```
-
-или одной командой из git-копии (внутри неё `project/` — рабочая директория):
-
-```bash
-cd /opt/kino/project && make update
-```
-
-`update.sh` синхронизирует код rsync'ом в `/opt/kino/app`, **не трогая**
-боевые `data/`, `logs/`, `venv/`, единый `.env` (`/opt/kino/project/.env`). `make health` — статус обоих
-сервисов и последние события; `make stop` — остановка.
-
-## Управление
-
-```bash
-sudo systemctl status kino kino-admin   # статус
-sudo systemctl restart kino             # перезапуск публикаций
-sudo systemctl stop kino kino-admin     # остановка (SIGTERM, пост доигрывается)
-journalctl -u kino -f                   # логи в реальном времени
-```
 
 ## Как это работает
 
@@ -108,6 +71,28 @@ journalctl -u kino -f                   # логи в реальном врем�
   пишет в `logs/kino.log` с ротацией и автоочисткой по возрасту/размеру.
 - **Права**: пользователь `kino` должен писать в `data/` и `logs/`.
 
+## Обновление кода на сервере
+
+```bash
+cd /opt/kino/project && sudo -u kino git pull origin main
+sudo -u kino /opt/kino/app/deploy/update.sh --restart
+```
+
+или одной командой:
+
+```bash
+cd /opt/kino/project && make update
+```
+
+## Управление
+
+```bash
+sudo systemctl status kino kino-admin   # статус
+sudo systemctl restart kino             # перезапуск публикаций
+sudo systemctl stop kino kino-admin     # остановка (SIGTERM, пост доигрывается)
+journalctl -u kino -f                   # логи в реальном времени
+```
+
 ## Диагностика
 
 | Проблема | Что проверить |
@@ -117,7 +102,7 @@ journalctl -u kino -f                   # логи в реальном врем�
 | Крутится и падает | `Restart=always` поднимет; смотри `journalctl` на причину |
 | Рестарты каждые ~3 минуты | watchdog: тик не доходит до пинга. `grep WATCHDOG journalctl -u kino` |
 | Нет постов по расписанию | `logs/kino.log` — «ждём: следующий слот …» |
-| «в БД нет включённых слотов» | `kino schedule seed` (шаг 2) |
+| «в БД нет включённых слотов» | `kino schedule seed` (шаг 1) |
 | Неверные ключи | `load_config` упадёт на старте с `ConfigError` — в journald |
 
 ## Откат
