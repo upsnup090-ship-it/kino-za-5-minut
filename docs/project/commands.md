@@ -200,7 +200,7 @@ cd /opt/kino/project
 sudo -u kino python3 -m venv venv
 sudo -u kino venv/bin/pip install -r requirements.txt
 
-# Шаг 3. .env (шаблон — docs/env.example)
+# Шаг 3. .env (шаблон — project/env.example)
 sudo -u kino cp docs/env.example .env
 sudo -u kino nano .env          # заполнить реальными значениями
 sudo chmod 600 .env

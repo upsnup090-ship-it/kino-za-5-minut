@@ -1,7 +1,7 @@
 # Деплой Kino serve + admin (автопостинг канала владельца)
 
-> **Полная инструкция «с нуля»:** `docs/industrial/RUN.md`.
-> **Справочник переменных `.env`:** `docs/industrial/deploy.md`.
+> **Полная инструкция «с нуля»:** `../../docs/industrial/RUN.md`.
+> **Справочник переменных `.env`:** `../../docs/industrial/deploy.md`.
 > **Диспетчер ботов клиентов:** `deploy/README.md`.
 
 Два systemd-сервиса:
