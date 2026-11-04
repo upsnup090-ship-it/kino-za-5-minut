@@ -72,25 +72,51 @@ def start(
     user_id: int,
     clients_db: ClientsDb,
 ) -> None:
-    """Клиент нажал /start у главного бота."""
+    """Клиент нажал /start: приветствие + адаптивное меню.
+
+    Токен принимается только по кнопке «Подключить бота» (cb:/begin_token)
+    — не сразу после /start.
+    """
     existing = clients_db.get_bot_info(user_id)
     if existing and existing.get("active"):
         username = existing.get("bot_username") or "твой бот"
+        client = clients_db.get_client(user_id) or {}
+        plan = client.get("plan", "free")
+        plan_note = "🤖 автопостинг" if plan == "auto" else "free"
         _send(
             master_token, chat_id,
-            f"✅ У тебя уже активирован бот @{username}.\n\n"
-            "Если хочешь заменить токен — отправь новый.",
+            f"✅ Твой бот **@{username}** активен (план: {plan_note}).\n\n"
+            f"Если хочешь заменить токен — воспользуйся кнопкой ниже.",
             reply_markup=inline_keyboard([
                 [("🔄 Заменить токен", "cb:/replace_token")],
+                [("📋 Мои боты", "cb:/my_bots"), ("ℹ️ Инфо", "cb:/info")],
             ]),
         )
         return
 
+    _send(
+        master_token, chat_id,
+        "👋 **Добро пожаловать в Киномодули!**\n\n"
+        "Здесь ты подключаешь своего Telegram-бота и управляешь\n"
+        "постами в своих каналах: ручной постинг, повторы,\n"
+        "автопостинг (по подписке) и статистика.\n\n"
+        "Чтобы начать, подключи своего бота.",
+        reply_markup=inline_keyboard([
+            [("🤖 Подключить моего бота", "cb:/begin_token")],
+            [("ℹ️ Что это и как работает", "cb:/info")],
+        ]),
+    )
+
+
+def begin_token(
+    master_token: str,
+    chat_id: int,
+    user_id: int,
+) -> None:
+    """Кнопка «Подключить моего бота»: инструкция + ожидание токена."""
     _pending[user_id] = True
     _send(
         master_token, chat_id,
-        "👋 **Добро пожаловать в Киномодули**\n\n"
-        "Чтобы начать, нужен свой бот.\n\n"
         "**Как получить токен:**\n"
         "1. Открой @BotFather\n"
         "2. Отправь `/newbot`\n"
@@ -98,6 +124,25 @@ def start(
         "4. BotFather пришлёт токен вида `1234567890:AAH...`\n\n"
         "Вставь его сюда одним сообщением.",
         reply_markup=inline_keyboard([[("❌ Отмена", "cb:/cancel")]]),
+    )
+
+
+def show_info(master_token: str, chat_id: int) -> None:
+    """Кнопка «Что это и как работает»."""
+    _send(
+        master_token, chat_id,
+        "ℹ️ **Что это?**\n\n"
+        "**Киномодули** — конструктор Telegram-ботов для каналов.\n"
+        "Ты подключаешь своего бота (создаёшь за 2 минуты в @BotFather)\n"
+        "и получаешь:\n\n"
+        "✍️ **Ручной постинг** — отправка постов в свои каналы\n"
+        "🔁 **Повторяющиеся сообщения** — посты по расписанию\n"
+        "🤖 **Автопостинг** — бот сам публикует кино-новости (план auto)\n"
+        "📊 **Статистика** — просмотры и реакции\n\n"
+        "Твой токен хранится зашифрованным, полный контроль — у тебя.",
+        reply_markup=inline_keyboard([
+            [("🤖 Подключить моего бота", "cb:/begin_token")],
+        ]),
     )
 
 
@@ -122,8 +167,32 @@ def handle(
               "ℹ️ Активация приостановлена. `/start` — вернуться к вводу токена.")
         return True
 
+    # Токен вслепую (без кнопки) не принимаем: подсказываем путь.
+    # Порядок: это до «/start», потому что /start не ставит pending.
+    if not is_pending(user_id) and not cmd.startswith(("/", "🚀", "🔄", "❌", "📋", "ℹ️")):
+        # Похоже на ввод токена без кнопки
+        if TOKEN_RE.match(text.strip()) or len(text.strip()) > 20:
+            _send(
+                master_token, chat_id,
+                "⚠️ Сначала нажми кнопку «🤖 Подключить моего бота»\n"
+                "(или отправь `/start`).",
+                reply_markup=inline_keyboard([
+                    [("🤖 Подключить моего бота", "cb:/begin_token")],
+                ]),
+            )
+            return True
+        return False
+
     if cmd in ("/start", "start", "🚀 начать"):
         start(master_token, chat_id, user_id, clients_db)
+        return True
+
+    if cmd in ("/begin_token", "🤖 подключить моего бота", "подключить"):
+        begin_token(master_token, chat_id, user_id)
+        return True
+
+    if cmd in ("/info", "ℹ️ что это и как работает"):
+        show_info(master_token, chat_id)
         return True
 
     if cmd in ("/my_bots", "📋 мои боты", "мои боты"):
@@ -288,3 +357,25 @@ def my_bots(master_token: str, chat_id: int, user_id: int, clients_db: ClientsDb
             [("🔄 Заменить токен", "cb:/replace_token")],
         ]),
     )
+
+
+ACTIVATION_CB_ACTIONS = {
+    "/start": lambda tok, ch, uid, db: start(tok, ch, uid, db),
+    "/my_bots": lambda tok, ch, uid, db: my_bots(tok, ch, uid, db),
+    "/replace_token": lambda tok, ch, uid, db: handle(tok, ch, uid, "/replace_token", db),
+    "/begin_token": lambda tok, ch, uid, db: begin_token(tok, ch, uid),
+    "/info": lambda tok, ch, uid, db: show_info(tok, ch),
+    "/cancel": lambda tok, ch, uid, db: handle(tok, ch, uid, "/cancel", db),
+}
+
+
+def handle_callback(master_token: str, chat_id: int, user_id: int, action: str, clients_db: ClientsDb) -> None:
+    """Диспетчеризация кнопок стартового бота (по ACTIVATION_CB_ACTIONS)."""
+    fn = ACTIVATION_CB_ACTIONS.get(action)
+    if fn is not None:
+        try:
+            fn(master_token, chat_id, user_id, clients_db)
+        except Exception as exc:
+            logger.exception("activation callback %s: %s", action, exc)
+    else:
+        _send(master_token, chat_id, "Неизвестная кнопка. Отправь /start.")

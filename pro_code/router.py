@@ -40,20 +40,20 @@ MODULES_PLACEHOLDER = {
 
 
 def build_main_menu(plan: str, is_owner: bool = False) -> str:
-    """Главное меню для клиента."""
+    """Адаптивное главное меню: пункты зависят от плана и роли."""
     lines = ["🏠 **Главное меню**\n"]
     lines.append("🔁 Повторяющиеся сообщения")
     lines.append("✍️ Ручной постинг")
     lines.append("📊 Статистика")
     lines.append("ℹ️ Инфо")
     if plan == "auto":
-        lines.append("🤖 Автопостинг (auto)")
-    if is_owner:
-        lines.append("")
-        lines.append("👥 RootA (только мастер)")
-        lines.append("💾 Бэкап+Логи (только мастер)")
+        lines.append("🤖 Автопостинг (/slots — расписание)")
     lines.append("")
-    lines.append("⚙️ Настройки")
+    lines.append("📢 /channels — мои каналы")
+    lines.append("🗓 /slots — слоты автопостинга" if plan == "auto" else "")
+    if is_owner:
+        lines.append("🛠 /admin — админ-панель")
+    lines = [ln for ln in lines if ln]
     return "\n".join(lines)
 
 
@@ -195,12 +195,26 @@ def handle_message(
         if handle_slots_command(token, chat_id, user_id, text, clients_db, auto_db, plan):
             return
 
+    # /admin — только для владельца диспетчера: вход в админ-панель.
+    if cmd in ("/admin", "🛠 админ-панель", "админ"):
+        if not is_owner:
+            send_message(token, chat_id, "❌ Админ-панель доступна только владельцу.")
+            return
+        if clients_db and ruch_db:
+            handle_owner_command(token, chat_id, "/menu", clients_db, ruch_db)
+        return
+
     # --- команды owner перенаправляем в admin_router ---
+    # /admin — явный вход в админ-панель (RootA) для владельца.
     if is_owner:
         from rrA.admin_router import OWNER_COMMANDS
-        if any(cmd.startswith(c + " ") or cmd == c for c in OWNER_COMMANDS) or cmd in ("/start", "/menu", "/help"):
+        if any(cmd.startswith(c + " ") or cmd == c for c in OWNER_COMMANDS) \
+                or cmd in ("/start", "/menu", "/help", "/admin"):
             if clients_db and ruch_db:
-                handle_owner_command(token, chat_id, text, clients_db, ruch_db)
+                if cmd == "/admin":
+                    handle_owner_command(token, chat_id, "/menu", clients_db, ruch_db)
+                else:
+                    handle_owner_command(token, chat_id, text, clients_db, ruch_db)
                 return
 
     # --- команды ---

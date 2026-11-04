@@ -250,7 +250,7 @@ def _dispatch_master(
             # кнопка уходила бы в активацию мимо админ-гейта.
             target_user = actor if actor is not None else chat_id
             try:
-                activation.handle(token, chat_id, target_user, action, db)
+                activation.handle_callback(token, chat_id, target_user, action, db)
             except Exception as exc:
                 logger.exception("callback главного бота %s: %s", data, exc)
         elif not access.is_admin(actor, cfg.admin_chat_id):
@@ -302,7 +302,31 @@ ACTIVATION_CALLBACKS = frozenset({
     "/my_bots",
     "/replace_token",
     "/cancel",
+    "/begin_token",
+    "/info",
 })
+
+
+ACTIVATION_CB_ACTIONS = {
+    "/start": lambda tok, ch, uid, db: start(tok, ch, uid, db),
+    "/my_bots": lambda tok, ch, uid, db: my_bots(tok, ch, uid, db),
+    "/replace_token": lambda tok, ch, uid, db: handle(tok, ch, uid, "/replace_token", db),
+    "/begin_token": lambda tok, ch, uid, db: begin_token(tok, ch, uid),
+    "/info": lambda tok, ch, uid, db: show_info(tok, ch),
+    "/cancel": lambda tok, ch, uid, db: handle(tok, ch, uid, "/cancel", db),
+}
+
+
+def handle_callback(master_token: str, chat_id: int, user_id: int, action: str, clients_db: ClientsDb) -> None:
+    """Диспетчеризация кнопок стартового бота (по ACTIVATION_CB_ACTIONS)."""
+    fn = ACTIVATION_CB_ACTIONS.get(action)
+    if fn is not None:
+        try:
+            fn(master_token, chat_id, user_id, clients_db)
+        except Exception as exc:
+            logger.exception("activation callback %s: %s", action, exc)
+    else:
+        _send(master_token, chat_id, "Неизвестная кнопка. Отправь /start.")
 
 
 def activation_cb_prefix() -> str:
