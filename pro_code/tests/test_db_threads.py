@@ -16,7 +16,7 @@ import pytest
 from pro_code.clients_db import ClientsDb
 from pro_code.kino_auto_db import KinoAutoDb
 from project_ruch.ruch_db import RuchDb
-from rezerv_post.rezerv_db import ReserveDb
+from project_ruch.rezerv_post.rezerv_db import ReserveDb
 
 
 def _run_in_threads(target, count: int = 3) -> list[BaseException]:

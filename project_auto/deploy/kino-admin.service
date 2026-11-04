@@ -9,7 +9,7 @@ Wants=network-online.target
 # SQLite держит несколько соединений, а serve не держит транзакций между тиками.
 Type=simple
 User=kino
-WorkingDirectory=/opt/kino/project/project
+WorkingDirectory=/opt/kino/project/project_auto
 EnvironmentFile=/opt/kino/project/.env
 ExecStart=/opt/kino/project/venv/bin/python -m kino admin
 Restart=always

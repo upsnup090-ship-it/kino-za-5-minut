@@ -12,7 +12,7 @@
 /opt/kino/project/            git-копия: pro_code/ project/ project_ruch/ rrA/ deploy/ scripts/
 /opt/kino/project/.env        единый боевой конфиг (chmod 600, вне git)
 /opt/kino/project/data/       БД: clients.db, ruch.db, rezerv.db, kino_auto.db (диспетчер)
-/opt/kino/project/project/data/kino.db   БД автопостинга Kino (слоты, резерв, прогоны)
+/opt/kino/project/project_auto/data/kino.db   БД автопостинга Kino (слоты, резерв, прогоны)
 ```
 
 Пути — от корня `/opt/kino/project` (внутри ЗИПа папка называется `project/`,
@@ -60,7 +60,7 @@ sudo chmod 600 .env
 
 ```bash
 rsync -av /path/to/old/data/ /opt/kino/project/data/
-rsync -av /path/to/old/project/data/ /opt/kino/project/project/data/
+rsync -av /path/to/old/project_auto/data/ /opt/kino/project/project_auto/data/
 ```
 
 ## 5. Проверка до старта
@@ -76,7 +76,7 @@ sudo -u kino venv/bin/python scripts/smoke.py
 Автопостинг Kino публикует по расписанию из БД — без слотов не выйдет ничего:
 
 ```bash
-cd /opt/kino/project/project
+cd /opt/kino/project/project_auto
 sudo -u kino ../venv/bin/python -m kino schedule seed
 ```
 

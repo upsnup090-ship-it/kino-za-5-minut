@@ -71,12 +71,12 @@ RUCH_TIMEZONE=Europe/Moscow
 | `/workspace/data/ruch.db` | ручной модуль: посты, повторы, статистика, бэкапы, черновики диалога |
 | `/workspace/data/rezerv.db` | отложенные посты ручного модуля |
 | `/workspace/data/kino_auto.db` | автопостинг диспетчера: per-client слоты, резерв, прогоны |
-| `/workspace/project/data/kino.db` | БД мастера автопостинга Kino: слоты, резерв, журнал прогонов |
+| `/workspace/project_auto/data/kino.db` | БД мастера автопостинга Kino: слоты, резерв, журнал прогонов |
 
 Все `data/*.db*` закрыты `.gitignore`.
 
 > **Пути выше — песочница (`/workspace`).** На сервере то же самое лежит в
-> `/opt/kino/project/data/` и `/opt/kino/project/project/data/kino.db`.
+> `/opt/kino/project/data/` и `/opt/kino/project/project_auto/data/kino.db`.
 
 ## 6. Чего в `.env` быть не должно
 

@@ -1,6 +1,6 @@
 """Подготовка путей импорта: `kino` живёт в подкаталоге ``project/``.
 
-Пакет Kino лежит в ``/workspace/project/kino`` и рассчитан на запуск из
+Пакет Kino лежит в ``/workspace/project_auto/kino`` и рассчитан на запуск из
 ``project/`` (CLI ``python -m kino``, systemd с ``WorkingDirectory``). Точка
 входа диспетчера — ``python -m pro_code.main`` из ``/workspace``, и в её
 ``sys.path`` есть только корень, поэтому ``import kino`` падал с
@@ -20,11 +20,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Каталог, где лежит пакет ``kino``.
-PROJECT_DIR = ROOT / "project"
+PROJECT_DIR = ROOT / "project_auto"
 
 
 def ensure_kino_importable() -> None:
-    """Добавить ``project/`` в ``sys.path``, если его там нет.
+    """Добавить ``project_auto/`` в ``sys.path``, если его там нет.
 
     Идемпотентно: повторный вызов ничего не меняет. Вставка в начало, чтобы
     локальный ``kino`` проекта имел приоритет над одноимённой установленной

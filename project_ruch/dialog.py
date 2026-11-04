@@ -360,7 +360,7 @@ def _show_posts(token: str, chat_id: int, user_id: int, ruch_db: RuchDb) -> None
 
 def _to_reserve(token: str, chat_id: int, user_id: int, ruch_db: RuchDb) -> None:
     """Отложить текущий черновик в rezerv_post."""
-    from rezerv_post.rezerv_db import ReserveDb
+    from project_ruch.rezerv_post.rezerv_db import ReserveDb
 
     draft = ruch_db.get_draft(user_id) or {}
     if not draft.get("text") and not draft.get("media_path"):

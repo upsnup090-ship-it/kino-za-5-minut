@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from project_ruch import reserve as rv
-from rezerv_post.rezerv_db import ReserveDb
+from project_ruch.rezerv_post.rezerv_db import ReserveDb
 
 
 @pytest.fixture

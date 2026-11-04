@@ -40,8 +40,8 @@ WORKSPACE_ROOT = git-корень = /workspace
 ```
 
 Git-периметр: корень репозитория — `/workspace` (`.git/` лежит там, а не в
-`project/`). Все git-операции — от корня репозитория; проект — подкаталог
-`project/`. В коммит идут только файлы, не закрытые `.gitignore`.
+`project_auto/`). Все git-операции — от корня репозитория; проект — подкаталог
+`project_auto/`. В коммит идут только файлы, не закрытые `.gitignore`.
 
 Если корень не задан, относителен, меняется или не канонизирован — СТОП.
 
@@ -101,7 +101,7 @@ LLM_BASE_URL            — LLM-шлюз из .env проекта
 /workspace/AGENT.md        — этот файл
 /workspace/_work/          — производные файлы
 /workspace/_agent_log.md   — журнал
-/workspace/project/        — территория проекта
+/workspace/project_auto/        — территория проекта
 ```
 
 ### 4.4. Режимы
@@ -275,7 +275,7 @@ Y #<номер>
 
 ```
 ПЕРИМЕТР: /workspace
-ПРОЕКТ: /workspace/project
+ПРОЕКТ: /workspace/project_auto
 СЕТЬ: allowlist (api.telegram.org, LLM_BASE_URL)
 ОРИГИНАЛЫ: <количество>
 СТРАХОВКА: git / копия в чат
@@ -360,7 +360,7 @@ github) — это отдельное объявление и отдельная
 /opt/kino/project/.env          — единый боевой конфиг (chmod 600, вне git)
 /opt/kino/project/venv/         — общий venv (pro_code + kino)
 /opt/kino/project/data/         — БД: clients.db, ruch.db
-/opt/kino/project/project/data/ — БД: kino.db (слоты, резерв, журнал прогонов)
+/opt/kino/project/project_auto/data/ — БД: kino.db (слоты, резерв, журнал прогонов)
 ```
 
 ### 13.2. Юниты (3 штуки)
@@ -368,8 +368,8 @@ github) — это отдельное объявление и отдельная
 | юнит | ExecStart | WorkingDirectory | EnvironmentFile |
 |---|---|---|---|
 | `kino-dispatcher` | `python -m pro_code.main` | `/opt/kino/project` | `/opt/kino/project/.env` |
-| `kino` | `python -m kino serve` | `/opt/kino/project/project` | `/opt/kino/project/.env` |
-| `kino-admin` | `python -m kino admin` | `/opt/kino/project/project` | `/opt/kino/project/.env` |
+| `kino` | `python -m kino serve` | `/opt/kino/project/project_auto` | `/opt/kino/project/.env` |
+| `kino-admin` | `python -m kino admin` | `/opt/kino/project/project_auto` | `/opt/kino/project/.env` |
 
 Все — `User=kino`, `Restart=always`, лог в journald.
 
@@ -404,5 +404,5 @@ github) — это отдельное объявление и отдельная
 
 Полный порядок — в `deploy/README.md` и `docs/industrial/RUN.md`.
 Кратко: удалить `/opt/kino` → распаковать ЗИП в `/opt/kino/` (внутри
-папка `project/`) → `chown -R kino:kino` → создать `.env` → venv +
+папка `project_auto/`) → `chown -R kino:kino` → создать `.env` → venv +
 `pip install` ×2 → скопировать 3 юнита → `daemon-reload` + `enable --now`.

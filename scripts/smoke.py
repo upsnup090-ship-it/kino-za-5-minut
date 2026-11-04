@@ -126,7 +126,7 @@ def main() -> int:
         from pro_code.clients_db import ClientsDb
         from pro_code.kino_auto_db import KinoAutoDb
         from project_ruch.ruch_db import RuchDb
-        from rezerv_post.rezerv_db import ReserveDb
+        from project_ruch.rezerv_post.rezerv_db import ReserveDb
 
         for name, factory in (
             ("clients.db", ClientsDb),

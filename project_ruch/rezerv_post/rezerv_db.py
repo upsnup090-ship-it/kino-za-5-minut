@@ -13,7 +13,7 @@ from typing import Any
 
 from pro_code.db import ThreadedConn, ensure_dir
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "rezerv.db"
+DB_PATH = Path(__file__).resolve().parents[2] / "data" / "rezerv.db"
 
 
 class ReserveDbError(Exception):

@@ -15,7 +15,7 @@ from typing import Any
 from pro_code.tg_api import TgError
 from project_ruch import manual_post
 from project_ruch.ruch_db import RuchDb
-from rezerv_post.rezerv_db import ReserveDb
+from project_ruch.rezerv_post.rezerv_db import ReserveDb
 
 logger = logging.getLogger(__name__)
 
