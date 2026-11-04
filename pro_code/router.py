@@ -197,8 +197,8 @@ def handle_message(
 
     # --- команды owner перенаправляем в admin_router ---
     if is_owner:
-        owner_cmds = ("/clients", "/stats", "/backup", "/backups", "/logs", "/register", "/client")
-        if any(cmd.startswith(c) for c in owner_cmds) or cmd in ("/start", "/menu", "/help"):
+        from rrA.admin_router import OWNER_COMMANDS
+        if any(cmd.startswith(c + " ") or cmd == c for c in OWNER_COMMANDS) or cmd in ("/start", "/menu", "/help"):
             if clients_db and ruch_db:
                 handle_owner_command(token, chat_id, text, clients_db, ruch_db)
                 return

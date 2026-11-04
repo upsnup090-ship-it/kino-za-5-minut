@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Callable
 
@@ -206,6 +207,21 @@ def _on_token(
         "бот активирован: user_id=%d, @%s (id=%s), токен %s",
         user_id, bot_username, bot_id, mask(raw),
     )
+
+    # Уведомление админу о новой активации (админ узнаёт сразу, а не из /clients).
+    try:
+        raw_admin = os.environ.get("ADMIN_CHAT_ID", "").strip()
+        admin_id = int(raw_admin) if raw_admin.isdigit() else None
+        if admin_id and admin_id != user_id:
+            _send(
+                master_token, admin_id,
+                f"🆕 **Новая активация**\n"
+                f"Клиент: `{user_id}`\n"
+                f"Бот: @{bot_username} (id {bot_id})\n"
+                f"Токен: {mask(raw)}",
+            )
+    except Exception:
+        logger.exception("уведомление админу об активации не отправлено")
 
     # Поднимаем бота сразу
     started = False
