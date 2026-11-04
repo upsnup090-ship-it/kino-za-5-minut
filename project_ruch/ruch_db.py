@@ -163,13 +163,42 @@ class RuchDb:
           последней публикации (для delete_last в повторяющихся).
         - post_drafts.extra — JSON произвольных полей диалогов
           (repeating-диалог хранит тут days_week/время/опции).
+
+        Гонка: соединение открывается лениво, в потоке, который первым
+        обратился к БД. Несколько потоков стартуют одновременно — каждый
+        видит «колонки нет» и каждый делает ALTER; второй получает
+        ``duplicate column name``. Поэтому миграция идёт под BEGIN IMMEDIATE
+        (write-lock до чтения PRAGMA, потоки сериализуются), а сам ALTER
+        дополнительно обёрнут в try/except — на случай, если транзакция
+        уже открыта снаружи и BEGIN бросит «within a transaction».
         """
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(repeating_messages)").fetchall()}
-        if "last_message_id" not in cols:
-            conn.execute("ALTER TABLE repeating_messages ADD COLUMN last_message_id TEXT")
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(post_drafts)").fetchall()}
-        if "extra" not in cols:
-            conn.execute("ALTER TABLE post_drafts ADD COLUMN extra TEXT")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            # Транзакция уже открыта вызывающим кодом — лок не нужен,
+            # сериализацию обеспечивает она сама.
+            pass
+
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(repeating_messages)").fetchall()}
+            if "last_message_id" not in cols:
+                try:
+                    conn.execute("ALTER TABLE repeating_messages ADD COLUMN last_message_id TEXT")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(post_drafts)").fetchall()}
+            if "extra" not in cols:
+                try:
+                    conn.execute("ALTER TABLE post_drafts ADD COLUMN extra TEXT")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
+        finally:
+            try:
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()

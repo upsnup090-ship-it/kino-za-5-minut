@@ -75,7 +75,7 @@ systemctl show kino -p WatchdogUSec       # WatchdogUSec=3min
 
 ```bash
 cd /opt/kino/project && sudo -u kino git pull origin main
-sudo -u kino /opt/kino/app/deploy/update.sh --restart
+sudo -u kino ./deploy/deploy.sh --restart
 ```
 
 или одной командой:

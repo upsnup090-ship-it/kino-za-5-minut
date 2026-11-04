@@ -8,8 +8,8 @@
 
 Два уровня:
 
-1. **Проект** (`kino/../`, т.е. `project/` в песочнице, `/opt/kino/app`
-   на сервере) — таблицы паттернов ниже.
+1. **Проект** (`kino/../`, т.е. `project_auto/` в песочнице,
+   `/opt/kino/project/project_auto` на сервере) — таблицы паттернов ниже.
 2. **Периметр** (git-корень, если он выше проекта; иначе совпадает с
    проектом) — верхний уровень: `AGENT.md`, `_work/`, `_agent_log.md`.
 
@@ -114,18 +114,18 @@ def _match(rel: str, pattern: str) -> bool:
 
 
 #: Корень проекта — каталог пакета kino на одну ступень выше
-#: (кросс-платформенно: работает и в песочнице /workspace/project, и на
-#: сервере /opt/kino/app).
+#: (кросс-платформенно: работает и в песочнице /workspace/project_auto, и на
+#: сервере /opt/kino/project/project_auto).
 _DEFAULT_ROOT = str(Path(__file__).resolve().parents[1])
 
 
 def _perimeter_root() -> str:
     """Корень периметра: git-корень выше проекта, иначе сам проект.
 
-    В песочнице `.git` лежит в `/workspace`, а код — в `/workspace/project`:
+    В песочнице `.git` лежит в `/workspace`, а код — в `/workspace/project_auto`:
     без этого `AGENT.md` попадал в UNKNOWN, и главный защищаемый файл
-    выпадал из классификации. На сервере (`/opt/kino/app`) `.git` нет —
-    периметр совпадает с проектом, поведение прежнее.
+    выпадал из классификации. На сервере (`/opt/kino/project/project_auto`)
+    `.git` лежит выше — периметр совпадает с git-корнем.
     """
     root = Path(_DEFAULT_ROOT)
     for candidate in (root, root.parent):
@@ -223,32 +223,6 @@ def is_original(
 
 # --- CLI: python -m kino.klass ------------------------------------------------
 
-_EXCLUDED_EXTRA = (".tmp", "mcp")
-
-
-def _rsync_excludes() -> list[str]:
-    """Список --exclude для deploy/update.sh, выведенный из таблиц классов.
-
-    Раньше update.sh держал свою копию списка (K2) и разошёлся с klass.py:
-    rsync заливал на сервер `.tmp/` и `mcp/`. Теперь список один.
-    """
-    dirs = list(EXCLUDED_COMPONENTS)
-    dirs += [d for d in _EXCLUDED_EXTRA if d not in dirs]
-    dirs += [p.split("/")[0] for p in DERIV_PATTERNS]
-    dirs += [p.split("/")[0] for p in STATE_PATTERNS]
-    names = [".env"] + [p for p in SECRET_PATTERNS if "/" not in p]
-
-    out: list[str] = []
-    for d in dirs:
-        if d == ".git":
-            continue
-        item = d + "/"
-        if item not in out:
-            out.append(item)
-    for n in names:
-        if n not in out:
-            out.append(n)
-    return out
 
 
 def audit_tree(root: str | Path = "") -> list[str]:
@@ -277,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
         print("Использование: python -m kino.klass "
-              "--classify <путь...> | --audit | --rsync-excludes")
+              "--classify <путь...> | --audit")
         return 2
 
     if args[0] == "--classify":
@@ -300,11 +274,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(" ", p)
             return 1
         print("OK: все пути периметра описаны законом")
-        return 0
-
-    if args[0] == "--rsync-excludes":
-        for name in _rsync_excludes():
-            print(f'  --exclude "{name}" \\')
         return 0
 
     print(f"неизвестный режим: {args[0]}")

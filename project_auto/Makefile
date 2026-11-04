@@ -55,14 +55,14 @@ deploy:
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now kino kino-admin
 
-## Обновление кода на сервере (git pull в копию + rsync в /opt/kino/app + рестарт)
+## Обновление кода на сервере (git pull в боевой каталог + рестарт)
 update:
 	git pull origin main
-	sudo -u kino ./deploy/update.sh --restart
+	sudo -u kino ./deploy/deploy.sh --restart
 
-## Только rsync без рестарта
+## Только pull + проверка, без рестарта
 update-code:
-	sudo -u kino ./deploy/update.sh
+	sudo -u kino ./deploy/deploy.sh
 
 ## Статус и здоровье обоих сервисов
 health:
