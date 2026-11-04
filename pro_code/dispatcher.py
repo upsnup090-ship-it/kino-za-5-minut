@@ -310,6 +310,45 @@ def activation_cb_prefix() -> str:
     return "cb:"
 
 
+def _active_auto_clients(db: ClientsDb) -> list[tuple[int, str, str]]:
+    """Клиенты с планом auto для serve-цикла.
+
+    Перечитывается каждый тик: клиент, активировавшийся после старта
+    диспетчера (модель A), иначе не попадал в serve до рестарта.
+    Возвращает [(user_id, token, plan)] только активных.
+    """
+    result: list[tuple[int, str, str]] = []
+    seen: set[int] = set()
+
+    # Сначала БД (побеждает, как в config.load_config)
+    try:
+        for row in db.list_clients():
+            if row.get("plan") != "auto" or row.get("status") != "active":
+                continue
+            user_id = int(row["user_id"])
+            token_info = db.get_bot_token(user_id)
+            if not token_info:
+                continue
+            result.append((user_id, token_info, "auto"))
+            seen.add(user_id)
+    except Exception as exc:
+        logger.error("serve: БД клиентов недоступна: %s", exc)
+
+    # Затем .env (клиенты, которых ещё нет в БД)
+    try:
+        from pro_code.config import _clients_from_env
+        for client in _clients_from_env().values():
+            if client.user_id in seen:
+                continue
+            if client.plan != "auto" or not client.active:
+                continue
+            result.append((client.user_id, client.token, client.plan))
+    except Exception as exc:
+        logger.error("serve: клиенты из .env недоступны: %s", exc)
+
+    return result
+
+
 def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
     """Serve-цикл (вариант A): слоты всех клиентов, публикация их ботами.
 
@@ -350,11 +389,7 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
             now_weekday = now.weekday()      # 0=Mon…6=Sun
             now_time = now.strftime("%H:%M")
 
-            for client in cfg.clients:
-                if client.plan != "auto" or not client.active:
-                    continue
-
-                user_id = client.user_id
+            for user_id, token, plan in _active_auto_clients(db):
 
                 # Пауза — раньше лимита: на паузе расход не идёт.
                 if auto_db.is_paused(user_id):
@@ -366,7 +401,7 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                         notified.add(user_id)
                         try:
                             send_message(
-                                client.token, user_id,
+                                token, user_id,
                                 "❌ **Превышен лимит LLM-расхода ($1).**\n"
                                 "Автопостинг приостановлен. Обратись к мастеру для пополнения.",
                             )
@@ -376,6 +411,9 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                 notified.discard(user_id)
 
                 # Каналы автопостинга — все с purpose auto/both.
+                # Источник истины — client_channels с purpose IN (auto, both);
+                # одиночный auto_channel_id в clients — совместимость,
+                # serve его не использует.
                 auto_channels = db.list_channels(user_id, purpose="auto")
                 if not auto_channels:
                     continue
@@ -400,10 +438,10 @@ def serve_worker(cfg: Config, db: ClientsDb, auto_db: KinoAutoDb) -> None:
                             "serve: Kino не загружен, пробуем резерв user_id=%d",
                             user_id,
                         )
-                        result = _try_reserve(None, client.token, channels, user_id, auto_db)
+                        result = _try_reserve(None, token, channels, user_id, auto_db)
                     else:
                         result = run_auto_post(
-                            client_token=client.token,
+                            client_token=token,
                             channels=channels,
                             user_id=user_id,
                             kino_cfg=kino_cfg,

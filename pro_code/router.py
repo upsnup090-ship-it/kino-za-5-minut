@@ -10,11 +10,13 @@ import logging
 from typing import Any
 
 from pro_code.clients_db import ClientsDb
-from pro_code.tg_api import send_message
 from pro_code.info import ABOUT_TEXT, FAQ_TEXT
+from pro_code.slots_ui import handle_slots_command
+from pro_code.tg_api import send_message
 from project_ruch import dialog as manual_dialog
 from project_ruch.ruch_db import RuchDb
 from rrA.admin_router import handle_owner_command
+from pro_code.kino_auto_db import KinoAutoDb
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,16 @@ MODULES_PLACEHOLDER = {
     "repeating": "🔁 **Повторяющиеся сообщения**\n\nРаздел в разработке.",
     "stats": "📊 **Статистика**\n\nРаздел в разработке.",
     "backup": "💾 **Бэкап**\n\nРаздел в разработке.",
-    "autoposting": "🤖 **Автопостинг**\n\nДоступно по плану **auto**.\n\nРаздел в разработке.\n\n📢 `/channels` — управление каналами и чатами",
+    "autoposting": (
+        "🤖 **Автопостинг** (план auto)\n\n"
+        "📢 `/channels` — каналы (назначение 🤖 автопостинг)\n"
+        "🗓 `/slots` — расписание слотов\n"
+        "• `/slot add пн 20:50` — добавить слот\n"
+        "• `/slot del <id>` — удалить\n"
+        "• `/slot on/off <id>` — вкл/выкл\n\n"
+        "В каждом слоте бот публикует один пост во все твои\n"
+        "каналы с назначением автопостинг."
+    ),
     "rootA": "👥 **RootA (управление клиентами)**\n\nРаздел в разработке. Только для мастера.",
 }
 
@@ -176,6 +187,12 @@ def handle_message(
         if manual_dialog.handle(
             token, chat_id, user_id, text, clients_db, ruch_db, raw_message=raw_message
         ):
+            return
+
+    # --- слоты автопостинга (план auto) ---
+    if clients_db and (cmd.startswith("/slot") or "слот" in cmd):
+        auto_db = KinoAutoDb()
+        if handle_slots_command(token, chat_id, user_id, text, clients_db, auto_db, plan):
             return
 
     # --- команды owner перенаправляем в admin_router ---

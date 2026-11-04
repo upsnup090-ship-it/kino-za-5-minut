@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from pro_code.clients_db import ClientsDb
 from pro_code.crypto import CryptoError, mask
+from pro_code.config import _detect_plan
 from pro_code.tg_api import TgError, get_me, inline_keyboard, send_message
 
 logger = logging.getLogger(__name__)
@@ -175,9 +176,15 @@ def _on_token(
     bot_id = info.get("id")
     bot_username = info.get("username")
 
-    # Сохранение (шифрование внутри)
+    # Сохранение (шифрование внутри). План не затираем: если клиент уже
+    # есть в БД (мастер задал план auto через .env или RootA) — сохраняем
+    # его план, иначе free.
     try:
-        clients_db.upsert_client(user_id, plan="free", status="active")
+        existing_row = clients_db.get_client(user_id)
+        current_plan = (existing_row or {}).get("plan") if existing_row else None
+        if current_plan not in ("free", "auto"):
+            current_plan = _detect_plan(user_id)  # из CLIENT_<id>_PLAN в .env
+        clients_db.upsert_client(user_id, plan=current_plan, status="active")
         clients_db.set_bot_token(
             user_id, raw, bot_id=bot_id, bot_username=bot_username
         )

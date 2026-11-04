@@ -29,8 +29,12 @@ from pro_code.kino_auto_db import KinoAutoDb
 
 logger = logging.getLogger(__name__)
 
-#: Условная стоимость одного LLM-прогона (будет уточнена).
+#: Условная стоимость одного LLM-прогона (плейсхолдер, см. TODO ниже).
+#: Реальный расход считается от входных/выходных токенов модели; сейчас
+#: каждая генерация учитывается как 0.001 → лимит $1 ≈ 1000 прогонов.
 LLM_COST_PER_RUN = 0.001
+# TODO(фаза LLM-учёта): считать реальную стоимость по usage-ответу провайдера
+# (prompt_tokens/completion_tokens × цены из settings.yaml) и писать её в runs.llm_cost.
 
 
 def make_client_publisher(

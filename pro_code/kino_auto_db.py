@@ -144,17 +144,26 @@ class KinoAutoDb:
         self.conn.commit()
         return {"id": cur.lastrowid, "user_id": user_id, "weekday": weekday, "time": time}
 
-    def delete_slot(self, slot_id: int) -> bool:
-        cur = self.conn.execute("DELETE FROM schedule_slots WHERE id = ?", (slot_id,))
+    def delete_slot(self, slot_id: int, *, user_id: int | None = None) -> bool:
+        """Удалить слот. С user_id — только слот этого клиента (клиентский UI)."""
+        sql = "DELETE FROM schedule_slots WHERE id = ?"
+        args: list[Any] = [slot_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            args.append(user_id)
+        cur = self.conn.execute(sql, tuple(args))
         self.conn.commit()
         return cur.rowcount > 0
 
-    def set_slot_enabled(self, slot_id: int, enabled: bool) -> bool:
+    def set_slot_enabled(self, slot_id: int, enabled: bool, *, user_id: int | None = None) -> bool:
+        """Вкл/выкл слота. С user_id — только слот этого клиента."""
         now = self._now()
-        cur = self.conn.execute(
-            "UPDATE schedule_slots SET enabled = ?, updated_at = ? WHERE id = ?",
-            (int(enabled), now, slot_id),
-        )
+        sql = "UPDATE schedule_slots SET enabled = ?, updated_at = ? WHERE id = ?"
+        args: list[Any] = [int(enabled), now, slot_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            args.append(user_id)
+        cur = self.conn.execute(sql, tuple(args))
         self.conn.commit()
         return cur.rowcount > 0
 
