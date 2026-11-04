@@ -114,6 +114,14 @@ def handle(
     """
     cmd = text.strip().lower()
 
+    # Пока ждём токен: /menu и /help выводят из активации (раньше любой
+    # текст, включая /menu, трактовался как токен — «не похоже на токен»).
+    if is_pending(user_id) and cmd in ("/menu", "/help"):
+        reset(user_id)
+        _send(master_token, chat_id,
+              "ℹ️ Активация приостановлена. `/start` — вернуться к вводу токена.")
+        return True
+
     if cmd in ("/start", "start", "🚀 начать"):
         start(master_token, chat_id, user_id, clients_db)
         return True

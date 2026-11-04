@@ -138,7 +138,16 @@ def send_message(
     markup = payload.get("reply_markup")
     if isinstance(markup, (dict, list)):
         payload["reply_markup"] = json.dumps(markup, ensure_ascii=False)
-    return _request(token, "sendMessage", json=payload)
+    try:
+        return _request(token, "sendMessage", json=payload)
+    except TgError as exc:
+        # Незакрытая/кривая разметка (Markdown v1 ломается на _ * [ в тексте)
+        # → Telegram 400 «can't parse entities». Дублируем без разметки:
+        # сообщение дойдёт хоть сырым текстом.
+        if "can't parse entities" in str(exc):
+            payload.pop("parse_mode", None)
+            return _request(token, "sendMessage", json=payload)
+        raise
 
 
 def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict:
