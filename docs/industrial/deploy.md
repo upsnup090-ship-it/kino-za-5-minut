@@ -14,7 +14,8 @@
 в репозиторий не попадает. Шаблон — `/workspace/.env.example`.
 
 `pro_code/config.py` читает именно `ROOT/.env`, где `ROOT` — родитель `pro_code/`,
-то есть `/workspace`. Другого места нет.
+то есть `/workspace`. `kino/config.py` читает тот же файл через `ENV_ROOT`
+(`ROOT.parent`). Другого места нет — единый env.
 
 ## 2. Что вписать
 
@@ -101,4 +102,4 @@ python3 -m compileall -q pro_code project_ruch rrA info rezerv_post
 - Токенов в коде, в git, в логах. `pro_code/tg_api.py` чистит токен из текста
   ошибок (`token[:12]…`), но не логируй `.env` целиком.
 - `ADMIN_CHAT_ID` клиента. Мастер — один.
-- Паролей и ключей LLM в `CLIENT_*` — они живут в `project/.env`.
+- Паролей и ключей LLM в `CLIENT_*` — они живут в едином `/workspace/.env`.

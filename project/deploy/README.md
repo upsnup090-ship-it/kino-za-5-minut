@@ -15,7 +15,7 @@
 
 - VPS с systemd (Debian/Ubuntu).
 - Проект скопирован в `/opt/kino/project`.
-- `.env` заполнен реальными значениями (шаблон: `docs/env.example`).
+- Единый `.env` заполнен реальными значениями (шаблон: `/workspace/.env.example`).
 - Виртуальное окружение создано: `venv/`.
 
 ## Шаг 1. Пользователь
@@ -80,7 +80,7 @@ cd /opt/kino/project && make update
 ```
 
 `update.sh` синхронизирует код rsync'ом в `/opt/kino/app`, **не трогая**
-боевые `data/`, `logs/`, `venv/`, `.env`. `make health` — статус обоих
+боевые `data/`, `logs/`, `venv/`, единый `.env` (`/opt/kino/.env`). `make health` — статус обоих
 сервисов и последние события; `make stop` — остановка.
 
 ## Управление

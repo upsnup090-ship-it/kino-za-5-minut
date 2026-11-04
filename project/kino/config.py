@@ -14,6 +14,9 @@ from kino.net_guard import require_llm_base_url
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
+#: Корень единого env — /workspace (на уровень выше project/). kino читает
+#: тот же .env, что и диспетчер (pro_code), а не project/.env.
+ENV_ROOT = ROOT.parent
 
 
 class ConfigError(Exception):
@@ -179,15 +182,15 @@ def _resolve_llm_proxy() -> str | None:
 
 
 def load_config(env_file: str | None = None) -> Config:
-    # Без явного env_file: .env, затем .env.test (перекрывает).
-    # С явным env_file он единственный источник — иначе тесты и альтернативные
-    # окружения не изолируются от боевого .env.test.
+    # Без явного env_file: единый .env из ENV_ROOT (/workspace), затем
+    # .env.test (перекрывает). С явным env_file он единственный источник —
+    # иначе тесты и альтернативные окружения не изолируются от боевого .env.test.
     if env_file:
         os.environ.setdefault("ENV_FILE", str(env_file))
         load_dotenv(env_file, override=True)
     else:
-        load_dotenv(ROOT / ".env")
-        load_dotenv(ROOT / ".env.test", override=True)
+        load_dotenv(ENV_ROOT / ".env")
+        load_dotenv(ENV_ROOT / ".env.test", override=True)
 
     sources_raw = _load_yaml(CONFIG_DIR / "sources.yaml").get("sources", [])
     sources = []
