@@ -5,10 +5,14 @@
 ## 0. Что где лежит
 
 ```
-/opt/kino/project/        git-копия: pro_code/ project/ project_ruch/ rrA/ deploy/ scripts/
-/opt/kino/project/.env    единый боевой конфиг (chmod 600, вне git)
-/opt/kino/project/data/   БД (clients.db, ruch.db, kino_auto.db, rezerv.db) — вне git
+/opt/kino/project/            git-копия: pro_code/ project/ project_ruch/ rrA/ deploy/ scripts/
+/opt/kino/project/.env        единый боевой конфиг (chmod 600, вне git)
+/opt/kino/project/data/       БД: clients.db, ruch.db, rezerv.db, kino_auto.db (диспетчер)
+/opt/kino/project/project/data/kino.db   БД автопостинга Kino (слоты, резерв, прогоны)
 ```
+
+Пути — от корня `/opt/kino/project` (внутри ЗИПа папка называется `project/`,
+поэтому БД Kino — во вложенном `project/data/`).
 
 ## 1. Обновить код
 
@@ -35,12 +39,21 @@ sudo -u kino nano .env
 sudo chmod 600 .env
 ```
 
-Обязательные ключи: `ADMIN_CHAT_ID`, `MASTER_BOT_TOKEN`, `TOKEN_ENCRYPTION_KEY`.
+Обязательные ключи: `ADMIN_CHAT_ID`, `MASTER_BOT_TOKEN`, `TOKEN_ENCRYPTION_KEY`
+(последний — обязателен при использовании модели A: клиент активирует бота
+через `/start`, токен хранится в `clients.db` зашифрованным).
+Для автопостинга (клиенты с планом `auto`): `BOT_TOKEN`, `CHANNEL_CHAT_ID`,
+`LLM_PROVIDER=openrouter`, `LLM_BASE_URL=https://ai.reqline.ru/v1`,
+`OPENROUTER_API_KEY`. Прокси: `PROXY_URL`/`GRAPH_PROXY_URL` — `api.graph.org`
+напрямую из сети сервера не отвечает. Полный шаблон — `/workspace/.env.example`.
 
 ## 4. Данные (если переезд)
 
 ```bash
-rsync -av data/ /opt/kino/project/data/
+# источник указываем явно — например, перенос со старого хоста
+rsync -av /path/to/old/data/ /opt/kino/project/data/
+# БД Kino — отдельно, она во вложенном project/data/
+rsync -av /path/to/old/project/data/ /opt/kino/project/project/data/
 ```
 
 ## 5. Проверка до старта
@@ -52,14 +65,34 @@ sudo -u kino venv/bin/python scripts/smoke.py
 Все строки `[PASS]` → можно стартовать. Хотя бы один `[FAIL]` → смотри
 пояснение в той же строке, чинить до запуска.
 
-## 6. Юнит и старт
+## 6. Юниты (3 штуки) и старт
 
 ```bash
 cd /opt/kino/project
-sudo cp deploy/kino-dispatcher.service /etc/systemd/system/
+sudo cp deploy/kino-dispatcher.service deploy/kino.service deploy/kino-admin.service \
+     /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now kino-dispatcher
+sudo systemctl enable --now kino-dispatcher kino kino-admin
 ```
+
+| юнит | что делает |
+|---|---|
+| `kino-dispatcher` | диспетчер ботов (`pro_code.main`): polling ботов клиентов, serve-цикл автопостинга |
+| `kino` | автопостинг Kino (`kino serve`) — канал владельца |
+| `kino-admin` | админ-бот расписания (`kino admin`) |
+
+## 6.1. Сетка слотов (один раз)
+
+Автопостинг Kino публикует по расписанию из БД — без слотов не выйдет
+ничего:
+
+```bash
+cd /opt/kino/project/project
+sudo -u kino ../venv/bin/python -m kino schedule seed
+```
+
+Правка слотов потом — через админ-бота (`kino-admin`, инлайн-календарь
+в личке) или `/slot add` / `/slot del`.
 
 ## 7. Что смотреть
 

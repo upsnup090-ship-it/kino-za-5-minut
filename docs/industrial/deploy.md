@@ -26,6 +26,19 @@
 | `CLIENT_<user_id>_PLAN` | нет | `free` (по умолчанию) или `auto`. `auto` открывает автопостинг. |
 | `RUCH_TIMEZONE` | нет | Зона повторяющихся сообщений. По умолчанию `Europe/Moscow`. |
 
+Полный список ключей для всех модулей (автопостинг, модель A, LLM) —
+см. шаблон `/workspace/.env.example`. Ключевое:
+
+| Переменная | Обязательна | Что это |
+|---|---|---|
+| `MASTER_BOT_TOKEN` | нет | Бот мастера (модель A): клиент активирует своего бота через `/start`. |
+| `TOKEN_ENCRYPTION_KEY` | нет* | Fernet-ключ; без него токены клиентов из `clients.db` не расшифруются (*обязателен, если хоть один клиент активировался через модель A). |
+| `BOT_TOKEN`, `CHANNEL_CHAT_ID` | да для автопостинга | Свой бот и канал автопостинга (Kino). |
+| `LLM_PROVIDER`, `LLM_BASE_URL` | да для автопостинга | Провайдер LLM (боевой: `openrouter` через шлюз `https://ai.reqline.ru/v1`). |
+| `OPENROUTER_API_KEY` | да для автопостинга | Ключ OpenRouter (или ключ выбранного провайдера). |
+| `DRAFT_MODEL`, `JUDGE_MODEL` | нет | Модели черновика/судьи; по умолчанию из `project/config/settings.yaml`. |
+| `PROXY_URL`, `GRAPH_PROXY_URL` | нет | Прокси для Telegram/graph.org — graph.org напрямую из сети сервера не отвечает. |
+
 Пример:
 
 ```env
@@ -67,11 +80,15 @@ python3 -m pro_code.main
 | `/workspace/data/clients.db` | клиенты, привязки, каналы, LLM-расход |
 | `/workspace/data/ruch.db` | ручной модуль: посты, повторы, статистика, бэкапы, черновики диалога |
 | `/workspace/data/rezerv.db` | отложенные посты ручного модуля |
-| `/workspace/data/kino_auto.db` | автопостинг: слоты, резерв, прогоны |
-| `/workspace/data/user_backups/` | пользовательские бэкапы (CSV/TXT, 2 последних) |
-| `/workspace/_work/backups/` | главный бэкап (только мастер, 2 последних) |
+| `/workspace/data/kino_auto.db` | автопостинг диспетчера: per-client слоты, резерв, прогоны (`pro_code/kino_auto_db.py`) |
+| `/workspace/project/data/kino.db` | БД мастера автопостинга Kino (`kino serve`): слоты, резерв, журнал прогонов |
 
 Все `data/*.db*` закрыты `.gitignore`.
+
+> **Пути выше — песочница (`/workspace`).** На боевом сервере то же самое
+> лежит в `/opt/kino/project/data/` (clients.db, ruch.db, rezerv.db,
+> kino_auto.db) и `/opt/kino/project/project/data/kino.db` — из-за вложенной
+> папки `project/` внутри ЗИПа (см. `AGENT.md` §13.1).
 
 ## 6. Проверка перед боевым запуском
 

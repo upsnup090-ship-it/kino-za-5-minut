@@ -1,0 +1,20 @@
+[Unit]
+Description=Kino za 5 minut — bot dispatcher (pro_code)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kino
+WorkingDirectory=/opt/kino/project
+EnvironmentFile=/opt/kino/project/.env
+ExecStart=/opt/kino/project/venv/bin/python -m pro_code.main
+Restart=always
+RestartSec=15
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
