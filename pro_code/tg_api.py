@@ -26,6 +26,13 @@ API_BASE = "https://api.telegram.org"
 #: Сколько ждать long polling (секунд). Telegram держит соединение открытым.
 LONG_POLL_TIMEOUT = 25
 
+#: Запас к HTTP-таймауту поверх long-poll (секунд).
+#: Telegram держит запрос `timeout` секунд; если клиент рвёт соединение
+#: раньше, каждый пустой опрос заканчивается ReadTimeout. Боевой лог
+#: (03.11): `timeout=25` в params против `timeout=15` у requests — ошибка
+#: каждые ~18 секунд, бот отвечал только когда апдейт уже лежал в очереди.
+LONG_POLL_GRACE = 10
+
 #: Поле в методе Bot API, куда кладётся файл.
 _MEDIA_FIELD = {
     "sendPhoto": "photo",
@@ -80,11 +87,40 @@ def get_me(token: str) -> dict:
 def get_updates(
     token: str, offset: int | None = None, timeout: int = LONG_POLL_TIMEOUT
 ) -> list[dict]:
-    """Получить апдейты (long poll)."""
+    """Получить апдейты (long poll).
+
+    Пустой опрос — не ошибка: Telegram держит соединение ``timeout`` секунд
+    и отвечает ``ok:true`` с пустым списком. Если HTTP-таймаут меньше,
+    соединение рвётся раньше ответа — так и было на сервере (03.11): в лог
+    каждые ~18 с уходил ``Read timed out (read timeout=15)``, а бот отвечал
+    только когда апдейт уже лежал в очереди. Здесь HTTP-таймаут всегда
+    больше long-poll, а таймаут на этом методе трактуется как «апдейтов нет».
+    """
     params: dict[str, Any] = {"timeout": timeout}
     if offset is not None:
         params["offset"] = offset
-    return _request(token, "getUpdates", params=params)
+    http_timeout = timeout + LONG_POLL_GRACE
+    try:
+        return _request(
+            token, "getUpdates", params=params, timeout=http_timeout
+        )
+    except TgError as exc:
+        if _is_timeout_error(exc):
+            logger.debug("long-poll: апдейтов нет (таймаут %sс)", http_timeout)
+            return []
+        raise
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Таймаут ли это (а не отказ сети/API).
+
+    ``_request`` заворачивает сетевые сбои в ``TgError`` и обезвреживает
+    текст (``sanitize``), поэтому тип ``requests.ReadTimeout`` уже потерян.
+    Опознаём по фрагменту сообщения — и только для long-poll: для прочих
+    методов таймаут остаётся ошибкой.
+    """
+    text = str(exc).lower()
+    return "timed out" in text or "timeout" in text
 
 
 def send_message(
