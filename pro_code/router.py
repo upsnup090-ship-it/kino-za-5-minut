@@ -194,6 +194,20 @@ def handle_message(
         if _handle_forwarded_message(token, chat_id, user_id, plan, raw_message, clients_db):
             return
 
+    # --- команды навигации (приоритет: работают всегда, даже внутри диалога) ---
+    if cmd == "/start":
+        reply = (
+            "👋 Привет!\n\n"
+            "Твой бот активирован. Используй меню ниже.\n\n"
+            + build_main_menu(plan, is_owner)
+        )
+        send_message(token, chat_id, reply, reply_markup=menu_keyboard(plan, is_owner))
+        return
+
+    if cmd in ("/menu", "/help"):
+        send_message(token, chat_id, build_main_menu(plan, is_owner), reply_markup=menu_keyboard(plan, is_owner))
+        return
+
     # --- диалог повторяющихся сообщений (поглощает, если активен) ---
     if ruch_db and clients_db:
         if repeating_ui.handle_add_dialog(token, chat_id, user_id, text, clients_db, ruch_db):
@@ -231,27 +245,13 @@ def handle_message(
     if is_owner:
         from rrA.admin_router import OWNER_COMMANDS
         if any(cmd.startswith(c + " ") or cmd == c for c in OWNER_COMMANDS) \
-                or cmd in ("/start", "/menu", "/help", "/admin"):
+                or cmd in ("/help", "/admin"):
             if clients_db and ruch_db:
                 if cmd == "/admin":
                     handle_owner_command(token, chat_id, "/menu", clients_db, ruch_db)
                 else:
                     handle_owner_command(token, chat_id, text, clients_db, ruch_db)
                 return
-
-    # --- команды ---
-    if cmd == "/start":
-        reply = (
-            "👋 Привет!\n\n"
-            "Твой бот активирован. Используй меню ниже.\n\n"
-            + build_main_menu(plan, is_owner)
-        )
-        send_message(token, chat_id, reply, reply_markup=menu_keyboard(plan, is_owner))
-        return
-
-    if cmd in ("/menu", "/help"):
-        send_message(token, chat_id, build_main_menu(plan, is_owner), reply_markup=menu_keyboard(plan, is_owner))
-        return
 
     if cmd == "/info":
         send_message(token, chat_id, ABOUT_TEXT)

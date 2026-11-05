@@ -288,13 +288,13 @@ def test_menu_button_on_confirm_screen(ruch_db, client_with_channel, mock_send):
     assert "cb:/menu" in _callbacks(mock_send[-1]["reply_markup"])
 
 
-def test_menu_command_keeps_draft(ruch_db, client_with_channel, mock_send):
-    """«В меню» не сбрасывает черновик — можно вернуться."""
+def test_menu_command_clears_draft(ruch_db, client_with_channel, mock_send):
+    """«В меню» СБРАСЫВАЕТ черновик, чтобы разблокировать бота из FSM."""
     dialog.start("T", 1, 1, client_with_channel, ruch_db)
     _run("T", 1, 1, "1", client_with_channel, ruch_db)
     _run("T", 1, 1, "/menu", client_with_channel, ruch_db)
-    assert ruch_db.get_draft(1) is not None
-    assert ruch_db.get_draft(1)["state"] == dialog.STATE_CONTENT
+    assert ruch_db.get_draft(1) is None
+    assert "Состояние сброшено" in mock_send[-1]["text"]
 
 
 # --- резерв: список и действия ---------------------------------------------
