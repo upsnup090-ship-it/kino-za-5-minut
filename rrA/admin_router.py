@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from pro_code.clients_db import ClientsDb
-from pro_code.tg_api import send_message
+from pro_code.tg_api import md_escape_username, send_message
 import pro_code.activation as activation
 from project_ruch.ruch_db import RuchDb
 from rrA.backup_logs import list_backups, make_backup, export_logs
@@ -128,7 +128,7 @@ def _show_clients(token: str, chat_id: int, clients_db: ClientsDb) -> None:
     for c in clients:
         spent = clients_db.get_llm_spent(c["user_id"])
         bot = clients_db.get_bot_info(c["user_id"])
-        bot_part = f"@{bot['bot_username']}" if bot and bot.get("bot_username") else "бота нет"
+        bot_part = f"@{md_escape_username(bot['bot_username'])}" if bot and bot.get("bot_username") else "бота нет"
         active_part = "✅" if (bot and bot.get("active")) else "⏸"
         added = (bot.get("added_at") or "")[:10] if bot else "—"
         status_icon = "🟢" if c.get("status") == "active" else "⚪️"
@@ -306,7 +306,7 @@ def _register_token_cmd(token: str, chat_id: int, args: str, clients_db: Clients
     msg = (
         f"✅ Токен зарегистрирован.\n"
         f"Bot ID: {bot_info.get('id')}\n"
-        f"Username: @{bot_info.get('username')}\n"
+        f"Username: @{md_escape_username(bot_info.get('username'))}\n"
         f"План: {plan}\n"
     )
     if spawned:

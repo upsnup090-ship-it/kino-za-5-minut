@@ -25,7 +25,7 @@ from typing import Any, Callable
 from pro_code.clients_db import ClientsDb
 from pro_code.crypto import CryptoError, mask
 from pro_code.config import _detect_plan
-from pro_code.tg_api import TgError, get_me, inline_keyboard, send_message
+from pro_code.tg_api import TgError, get_me, inline_keyboard, md_escape_username, send_message
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def start(
         plan_note = "🤖 автопостинг" if plan == "auto" else "free"
         _send(
             master_token, chat_id,
-            f"✅ Твой бот **@{username}** активен (план: {plan_note}).\n\n"
+            f"✅ Твой бот **@{md_escape_username(username)}** активен (план: {plan_note}).\n\n"
             f"Если хочешь заменить токен — воспользуйся кнопкой ниже.",
             reply_markup=inline_keyboard([
                 [("🔄 Заменить токен", "cb:/replace_token")],
@@ -294,7 +294,7 @@ def _on_token(
                 master_token, admin_id,
                 f"🆕 **Новая активация**\n"
                 f"Клиент: `{user_id}`\n"
-                f"Бот: @{bot_username} (id {bot_id})\n"
+                f"Бот: @{md_escape_username(bot_username)} (id {bot_id})\n"
                 f"Токен: {mask(raw)}",
             )
     except Exception:
@@ -310,7 +310,7 @@ def _on_token(
             logger.exception("не удалось запустить бота user_id=%d: %s", user_id, exc)
 
     lines = [
-        f"✅ **Бот @{bot_username} активирован!**\n",
+        f"✅ **Бот @{md_escape_username(bot_username)} активирован!**\n",
         f"Токен сохранён в зашифрованном виде ({mask(raw)}).",
         "",
     ]
@@ -349,7 +349,7 @@ def my_bots(master_token: str, chat_id: int, user_id: int, clients_db: ClientsDb
     _send(
         master_token, chat_id,
         f"📋 **Твой бот**\n\n"
-        f"@{info.get('bot_username') or '—'}\n"
+        f"@{md_escape_username(info.get('bot_username') or '—')}\n"
         f"Статус: {status}\n"
         f"План: **{plan}**\n"
         f"Активирован: {info.get('added_at', '')[:10]}",

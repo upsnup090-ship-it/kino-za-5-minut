@@ -157,6 +157,23 @@ def send_message(
         raise
 
 
+def md_escape_username(u: str) -> str:
+    """Экранировать username бота для Markdown v1.
+
+    Username бота по правилам Telegram почти всегда содержит ``_``
+    (заканчивается на ``bot``): ``tetstklient_bot``, ``my_news_bot``.
+    В Markdown v1 символы ``_ * [ ] ` `` — служебные: нечётное число ``_``
+    (напр. ``tetstklient_bot`` — один) ломает разметку, Telegram отвечает
+    400 и ``send_message`` уходит в fallback (сырой текст со звёздочками);
+    чётное (``my_news_bot`` — два) рендерит ``@my`` + *news* + ``bot`` —
+    то самый «неверный вывод ссылки на бота». Экранируем спецсимволы
+    обратным слешом, чтобы ``@username`` показывался ровно как напечатан.
+    """
+    for ch in "_*[`":
+        u = u.replace(ch, "\\" + ch)
+    return u
+
+
 def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict:
     """Собрать инлайн-клавиатуру из рядов (текст, callback_data).
 

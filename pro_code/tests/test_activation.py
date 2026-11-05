@@ -79,7 +79,7 @@ def test_success_message_mentions_bot(clients_db, mock_send, spawner):
     _begin(clients_db, mock_send)
     with patch("pro_code.activation.get_me", return_value=BOT_INFO):
         activation.handle("M", 1, 1, TOKEN, clients_db)
-    assert "@client_bot" in mock_send[-1]["text"]
+    assert "@client\\_bot" in mock_send[-1]["text"]
 
 
 def test_token_not_in_logs_or_messages(clients_db, mock_send, spawner):
@@ -148,7 +148,7 @@ def test_already_activated_shows_status(clients_db, mock_send, spawner):
         activation.handle("M", 1, 1, TOKEN, clients_db)
     _start(clients_db, mock_send)
     assert "активен" in mock_send[-1]["text"]
-    assert "@client_bot" in mock_send[-1]["text"]
+    assert "@client\\_bot" in mock_send[-1]["text"]
 
 
 def test_replace_token(clients_db, mock_send, spawner):
@@ -172,7 +172,7 @@ def test_my_bots_shows_bot(clients_db, mock_send, spawner):
     with patch("pro_code.activation.get_me", return_value=BOT_INFO):
         activation.handle("M", 1, 1, TOKEN, clients_db)
     activation.handle("M", 1, 1, "/my_bots", clients_db)
-    assert "@client_bot" in mock_send[-1]["text"]
+    assert "@client\\_bot" in mock_send[-1]["text"]
     assert "free" in mock_send[-1]["text"]
 
 
