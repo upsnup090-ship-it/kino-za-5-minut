@@ -39,31 +39,36 @@ MODULES_PLACEHOLDER = {
 def menu_keyboard(plan: str, is_owner: bool = False) -> dict:
     """Inline-кнопки главного меню по плану (baseline §4, §5)."""
     rows: list[list[tuple[str, str]]] = [
-        [("🔁 Повторяющиеся", "cb:/repeat"), ("✍️ Ручной постинг", "cb:/post")],
-        [("📊 Статистика", "cb:/stats"), ("💾 Бэкап", "cb:/backup")],
-        [("📢 Мои каналы", "cb:/channels"), ("⏳ Резерв", "cb:/reserve")],
+        [("🤖 Автопостинг / слоты", "cb:/slots")] if plan == "auto" else [],
+        [("✍️ Ручной постинг", "cb:/post_main")],
+        [("📊 Статистика", "cb:/stats"), ("📢 Мои каналы", "cb:/channels")],
         [("ℹ️ Инфо", "cb:/info")],
     ]
-    if plan == "auto":
-        rows.append([("🤖 Автопостинг / слоты", "cb:/slots")])
     if is_owner:
         rows.append([("🛠 Админ-панель", "cb:/admin")])
-    return inline_keyboard(rows)
+    return inline_keyboard([r for r in rows if r])
+
+
+def _post_main_keyboard() -> dict:
+    """Подменю «Ручной постинг»: 5 действий + «В меню»."""
+    return inline_keyboard([
+        [("🔁 Повторяющиеся", "cb:/repeat"), ("📝 Сделать пост", "cb:/post")],
+        [("📋 Мои посты", "cb:/posts"), ("⏳ Резерв", "cb:/reserve")],
+        [("💾 Бэкап", "cb:/backup")],
+        [("🏠 В меню", "cb:/menu")],
+    ])
 
 
 def build_main_menu(plan: str, is_owner: bool = False) -> str:
     """Адаптивное главное меню: текст + inline-кнопки (см. menu_keyboard)."""
     lines = ["🏠 **Главное меню**\n"]
     lines.append("Выбирай кнопку ниже или команду:")
-    lines.append("• `/repeat` — повторяющиеся сообщения")
-    lines.append("• `/post` — ручной постинг")
-    lines.append("• `/posts` — мои посты (удалить/переотправить)")
-    lines.append("• `/reserve` — отложенные посты")
-    lines.append("• `/stats` — статистика")
-    lines.append("• `/backup` — лёгкий бэкап")
-    lines.append("• `/channels` — мои каналы")
     if plan == "auto":
         lines.append("• `/slots` — слоты автопостинга")
+    lines.append("• `✍️ Ручной постинг` — подменю (повторы, пост, резерв, бэкап)")
+    lines.append("• `/stats` — статистика")
+    lines.append("• `/channels` — мои каналы")
+    lines.append("• `/info` — о боте")
     if is_owner:
         lines.append("• `/admin` — админ-панель")
     return "\n".join(lines)
@@ -205,7 +210,16 @@ def handle_message(
         return
 
     if cmd in ("/menu", "/help"):
+        if ruch_db:
+            ruch_db.clear_draft(user_id)
         send_message(token, chat_id, build_main_menu(plan, is_owner), reply_markup=menu_keyboard(plan, is_owner))
+        return
+
+    if cmd == "/post_main":
+        if not clients_db or not ruch_db:
+            send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
+            return
+        send_message(token, chat_id, "📝 **Ручной постинг**\n\nВыбирай действие:", reply_markup=_post_main_keyboard())
         return
 
     # --- диалог повторяющихся сообщений (поглощает, если активен) ---
@@ -380,29 +394,15 @@ def handle_message(
     if cmd in ("🔁 повторяющиеся", "повторяющиеся", "repeating", "🔁"):
         repeating_ui.handle(token, chat_id, user_id, "/repeat", clients_db, ruch_db)
         return
-    if cmd in ("/stats", "📊 статистика", "статистика", "stats", "📊"):
+    if cmd in ("/stats", "📊 статистика", "статистика", "stats", ""):
         if clients_db:
             stats_ui.send_stats(token, chat_id, user_id, clients_db)
-        return
-    if cmd == "/backup" or cmd.startswith("/backup ") or cmd in ("💾 бэкап", "бэкап", "backup", "💾"):
-        backup_ui.handle(token, chat_id, user_id, text)
         return
     if cmd in ("✍️ ручной постинг", "ручной постинг", "manual", "✍️", "/post"):
         if clients_db and ruch_db:
             manual_dialog.start(token, chat_id, user_id, clients_db, ruch_db)
         else:
             send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
-        return
-    # Резерв и действия над постами — в диалог ручного постинга.
-    if cmd in ("⏳ резерв", "резерв", "/reserve") or cmd.startswith(
-        ("/reserve_pub_", "/reserve_del_", "/post_del_", "/post_resend_", "/posts", "/del_last")
-    ):
-        if clients_db and ruch_db:
-            if manual_dialog.handle(
-                token, chat_id, user_id, text, clients_db, ruch_db, raw_message=raw_message
-            ):
-                return
-        send_message(token, chat_id, "⏳ **Резерв**\n\nМодуль недоступен.")
         return
     if cmd in ("ℹ️ инфо", "инфо", "info", "ℹ️"):
         send_message(token, chat_id, ABOUT_TEXT)
