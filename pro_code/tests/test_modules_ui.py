@@ -14,7 +14,7 @@ import pytest
 
 from pro_code import backup_ui, dispatcher, repeating_ui, stats_ui
 from pro_code.config import Config
-from pro_code.router import build_main_menu, menu_keyboard, _post_main_keyboard
+from pro_code.router import build_main_menu, menu_keyboard
 from project_ruch.ruch_db import RuchDb
 
 TOKEN_OLD = "1111111111:AAH_old_token_aaaaaaaaaaaaaaaaaa"
@@ -30,17 +30,16 @@ def _cfg(admin_id: int = 2005841409) -> Config:
 def test_menu_keyboard_free():
     kb = menu_keyboard("free")
     labels = [b["text"] for row in kb["inline_keyboard"] for b in row]
-    assert "🤖 Автопостинг" not in labels  # только для auto
-    assert "✍️ Ручной постинг" in labels
-    assert "ℹ️ Инфо" in labels
+    assert "🤖 Автопостинг / слоты" not in labels
+    assert "🔁 Повторяющиеся" in labels
     assert "📊 Статистика" in labels
-    assert "Мои каналы" not in labels  # внутри подменю или через /channels
+    assert "💾 Бэкап" in labels
 
 
 def test_menu_keyboard_auto_has_autoposting():
     kb = menu_keyboard("auto")
     labels = [b["text"] for row in kb["inline_keyboard"] for b in row]
-    assert "🤖 Автопостинг" in labels
+    assert "🤖 Автопостинг / слоты" in labels
 
 
 def test_menu_keyboard_owner_has_admin():
@@ -51,33 +50,12 @@ def test_menu_keyboard_owner_has_admin():
 
 def test_build_main_menu_mentions_commands():
     text = build_main_menu("free")
-    assert "Ручной постинг" in text
-    assert "Инфо" in text
-    assert "Статистика" in text
-    # Команды — в подменю, не в главном
-    assert "/repeat" not in text
-    assert "/post" not in text
-    assert "/stats" not in text
-    assert "/channels" not in text
-
-
-def test_post_main_keyboard_shows_submenu():
-    """Подменю «Ручной постинг» содержит 5 действий + «В меню»."""
-    kb = _post_main_keyboard()
-    labels = [b["text"] for row in kb["inline_keyboard"] for b in row]
-    assert "🔁 Повторяющиеся" in labels
-    assert "📝 Сделать пост" in labels
-    assert "📋 Мои посты" in labels
-    assert "⏳ Резерв" in labels
-    assert "💾 Бэкап" in labels
-    assert "🏠 В меню" in labels
-    callbacks = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
-    assert "cb:/repeat" in callbacks
-    assert "cb:/post" in callbacks
-    assert "cb:/posts" in callbacks
-    assert "cb:/reserve" in callbacks
-    assert "cb:/backup" in callbacks
-    assert "cb:/menu" in callbacks
+    assert "/repeat" in text
+    assert "/post" in text
+    assert "/posts" in text
+    assert "/reserve" in text
+    assert "/stats" in text
+    assert "/backup" in text
 
 
 # --- repeating: список, создание по диалогу, вкл/выкл/удаление -------------------
