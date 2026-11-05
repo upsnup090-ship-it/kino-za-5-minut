@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from typing import Any
 
 from pro_code.tg_api import get_me, TgError
@@ -13,6 +14,16 @@ logger = logging.getLogger(__name__)
 
 #: Формат: user_id:token (user_id — число, token — из BotFather)
 TOKEN_PATTERN = re.compile(r"^(\d+):(.+)$")
+
+#: Символы для ключа активации (без похожих 0/O, 1/I, 8/B).
+_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def generate_key() -> str:
+    """Сгенерировать случайный ключ активации вида KINO-XXXX-XXXX-XXXX."""
+    def _block() -> str:
+        return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(4))
+    return f"KINO-{_block()}-{_block()}-{_block()}"
 
 
 def parse_token_input(raw: str) -> dict[str, Any] | None:

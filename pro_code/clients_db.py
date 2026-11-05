@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS bot_tokens (
     added_at        TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL
 );
+
+-- Ключи активации Auto. 1 клиент = 1 ключ, многоразовый, привязан к
+-- user_id. Админ генерирует ключ (RootA /key <user_id>), выдаёт лично.
+-- Клиент вводит ключ в своём боте (/activation <key>) → план становится auto.
+CREATE TABLE IF NOT EXISTS activation_keys (
+    key         TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL UNIQUE REFERENCES clients(user_id),
+    created_at  TEXT    NOT NULL
+);
 """
 
 
@@ -374,6 +383,47 @@ class ClientsDb:
         """Удалить токен бота клиента."""
         cur = self.conn.execute(
             "DELETE FROM bot_tokens WHERE user_id = ?", (user_id,)
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    # --- activation_keys (ключи активации Auto) -----------------------------
+
+    def create_key(self, user_id: int, key: str) -> bool:
+        """Сохранить ключ активации для клиента (1 клиент = 1 ключ).
+
+        Если у клиента уже есть ключ — обновляем его (старый начинает не
+        действовать, привязка user_id сохраняется, ключей всегда один).
+        """
+        now = self._now()
+        self.conn.execute(
+            """INSERT INTO activation_keys (key, user_id, created_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET key=excluded.key,
+                   created_at=excluded.created_at""",
+            (key, user_id, now),
+        )
+        self.conn.commit()
+        return True
+
+    def get_key_user(self, key: str) -> int | None:
+        """user_id, которому принадлежит ключ. None — ключ неизвестен."""
+        row = self.conn.execute(
+            "SELECT user_id FROM activation_keys WHERE key = ?", (key,)
+        ).fetchone()
+        return int(row["user_id"]) if row else None
+
+    def get_key_for_user(self, user_id: int) -> str | None:
+        """Ключ клиента (для показа админу). None — ключа ещё нет."""
+        row = self.conn.execute(
+            "SELECT key FROM activation_keys WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return row["key"] if row else None
+
+    def remove_key(self, user_id: int) -> bool:
+        """Удалить ключ клиента (аннулировать активацию)."""
+        cur = self.conn.execute(
+            "DELETE FROM activation_keys WHERE user_id = ?", (user_id,)
         )
         self.conn.commit()
         return cur.rowcount > 0

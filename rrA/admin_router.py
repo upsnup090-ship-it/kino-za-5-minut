@@ -17,7 +17,7 @@ from project_ruch.ruch_db import RuchDb
 from rrA.backup_logs import list_backups, make_backup, export_logs
 from rrA.clients import list_clients, get_client, add_client, set_plan, set_status, get_bindings, verify_client_token
 from rrA.stats import full_owner_report
-from rrA.tokens import parse_token_input, register_token
+from rrA.tokens import parse_token_input, register_token, generate_key
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 OWNER_COMMANDS = (
     "/clients", "/stats", "/backup", "/backups", "/logs",
     "/register", "/client", "/llm_status", "/reset_llm", "/set_llm_limit",
-    "/set_plan", "/set_status",
+    "/set_plan", "/set_status", "/key",
 )
 
 
@@ -92,6 +92,11 @@ def handle_owner_command(
         _show_client_info(token, chat_id, text[8:], clients_db)
         return
 
+    # Сгенерировать ключ активации Auto для клиента
+    if cmd.startswith("/key "):
+        _generate_key_cmd(token, chat_id, text[5:], clients_db)
+        return
+
     send_message(token, chat_id, "Неизвестная команда. Отправь /menu для списка.")
 
 
@@ -105,6 +110,7 @@ def _send_main_menu(token: str, chat_id: int) -> None:
         "📜 /logs — просмотр логов\n"
         "📝 /register user_id:token — добавить/сменить токен\n"
         "👤 /client user_id — информация о клиенте\n"
+        "🔑 /key user_id — сгенерировать ключ активации Auto\n"
         "🔁 /set_plan user_id free|auto — сменить план\n"
         "⏸ /set_status user_id active|inactive — вкл/выкл клиента\n"
         "💰 /llm_status — статус LLM-расхода клиентов\n"
@@ -326,11 +332,14 @@ def _show_client_info(token: str, chat_id: int, args: str, clients_db: ClientsDb
 
     bindings = get_bindings(clients_db, user_id)
     spent = clients_db.get_llm_spent(user_id)
+    key = clients_db.get_key_for_user(user_id)
+    key_line = f"`{key}`" if key else "— нет (сгенерируй: `/key {user_id}`)"
     lines = [
         f"👤 **Клиент {user_id}**\n",
         f"План: {client.get('plan', 'free')}",
         f"Статус: {client.get('status', 'active')}",
         f"LLM-расход: ${spent:.4f} / $1.00",
+        f"Ключ Auto: {key_line}",
         f"Привязок: {len(bindings)}",
         "",
         "Привязки:",
@@ -338,3 +347,29 @@ def _show_client_info(token: str, chat_id: int, args: str, clients_db: ClientsDb
     for b in bindings:
         lines.append(f"  `{b['chat_id']}` — {b.get('type', '?')} ({b.get('role', '?')})")
     send_message(token, chat_id, "\n".join(lines))
+
+
+def _generate_key_cmd(token: str, chat_id: int, args: str, clients_db: ClientsDb) -> None:
+    """/key <user_id> — сгенерировать ключ активации Auto и показать админу."""
+    try:
+        user_id = int(args.strip())
+    except ValueError:
+        send_message(token, chat_id, "❌ Формат: `/key user_id` (user_id — число).")
+        return
+
+    client = get_client(clients_db, user_id)
+    if not client:
+        send_message(token, chat_id, f"❌ Клиент {user_id} не найден. Сначала активируй его токен.")
+        return
+
+    key = generate_key()
+    clients_db.create_key(user_id, key)
+    send_message(
+        token, chat_id,
+        f"🔑 **Ключ активации Auto** для клиента `{user_id}`\n\n"
+        f"`{key}`\n\n"
+        "Передай его клиенту лично. Клиент введёт в своём боте:\n"
+        f"`/activation {key}`\n\n"
+        "ℹ️ Ключ многоразовый и привязан к этому клиенту. "
+        "Повторная генерация заменит старый ключ.",
+    )

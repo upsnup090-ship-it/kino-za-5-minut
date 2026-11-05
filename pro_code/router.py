@@ -212,6 +212,11 @@ def handle_message(
         if handle_slots_command(token, chat_id, user_id, text, clients_db, auto_db, plan):
             return
 
+    # --- активация ключом Auto: /activation <ключ> ---
+    if clients_db and cmd.startswith("/activation"):
+        _activate_key(token, chat_id, user_id, text, clients_db)
+        return
+
     # /admin — только для владельца диспетчера: вход в админ-панель.
     if cmd in ("/admin", "🛠 админ-панель", "админ"):
         if not is_owner:
@@ -420,6 +425,62 @@ def handle_message(
     send_message(
         token, chat_id,
         "Я понимаю только команды из меню. Отправь /menu.",
+    )
+
+
+def _activate_key(
+    token: str, chat_id: int, user_id: int, cmd: str, clients_db: ClientsDb,
+) -> None:
+    """Активация Auto по ключу: /activation <ключ>.
+
+    Ключ генерирует админ (RootA /key <user_id>) и выдаёт лично. Ключ
+    многоразовый и привязан к одному клиенту. Ввод совпавшего ключа
+    переводит клиента на план auto.
+    """
+    raw = cmd.split(None, 1)
+    if len(raw) < 2 or not raw[1].strip():
+        send_message(
+            token, chat_id,
+            "🔑 **Активация Auto**\n\n"
+            "Введи ключ, который выдал тебе мастер:\n"
+            "`/activation <ключ>`\n\n"
+            "Ключ включает автопостинг кино-новостей и расписание слотов.\n"
+            "Free-функции (ручной постинг, повторы, статистика) работают и без ключа.",
+        )
+        return
+
+    key = raw[1].strip().upper()
+    if not key.startswith("KINO-"):
+        send_message(
+            token, chat_id,
+            "❌ Это не похоже на ключ активации. Ключ выглядит так:\n"
+            "`KINO-XXXX-XXXX-XXXX`\n\n"
+            "Уточни ключ у мастера.",
+        )
+        return
+
+    owner = clients_db.get_key_user(key)
+    if owner is None:
+        send_message(token, chat_id, "❌ Такого ключа нет. Проверь ключ и попробуй ещё раз.")
+        return
+    if owner != user_id:
+        send_message(
+            token, chat_id,
+            "❌ Этот ключ привязан к другому клиенту.\n"
+            "Уточни, что получил правильный ключ.",
+        )
+        return
+
+    # Ключ верный и этого клиента — включаем auto.
+    clients_db.upsert_client(user_id, plan="auto", status="active")
+    send_message(
+        token, chat_id,
+        "🚀 **Auto активирован!**\n\n"
+        "Теперь доступен автопостинг и расписание слотов.\n\n"
+        "• `/slots` — настрой расписание\n"
+        "• `/channels` — назначь каналы для автопостинга\n\n"
+        "Вызови `/menu`, чтобы обновить меню.",
+        reply_markup=menu_keyboard("auto", is_owner=(user_id == int(__import__("os").environ.get("ADMIN_CHAT_ID", "0") or 0))),
     )
 
 
