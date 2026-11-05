@@ -37,16 +37,24 @@ MODULES_PLACEHOLDER = {
 
 
 def menu_keyboard(plan: str, is_owner: bool = False) -> dict:
-    """Inline-кнопки главного меню по плану (baseline §4, §5)."""
+    """Inline-кнопки главного меню: 4 верхние + админ."""
     rows: list[list[tuple[str, str]]] = [
-        [("🤖 Автопостинг / слоты", "cb:/slots")] if plan == "auto" else [],
+        [("🤖 Автопостинг", "cb:/autoposting_main")] if plan == "auto" else [],
         [("✍️ Ручной постинг", "cb:/post_main")],
-        [("📊 Статистика", "cb:/stats"), ("📢 Мои каналы", "cb:/channels")],
-        [("ℹ️ Инфо", "cb:/info")],
+        [("ℹ️ Инфо", "cb:/info"), ("📊 Статистика", "cb:/stats")],
     ]
     if is_owner:
         rows.append([("🛠 Админ-панель", "cb:/admin")])
     return inline_keyboard([r for r in rows if r])
+
+
+def _autoposting_keyboard() -> dict:
+    """Подменю «Автопостинг»: слоты, каналы авто, «В меню»."""
+    return inline_keyboard([
+        [("🗓 Слоты", "cb:/slots")],
+        [("📢 Каналы авто", "cb:/auto_channels")],
+        [(" В меню", "cb:/menu")],
+    ])
 
 
 def _post_main_keyboard() -> dict:
@@ -62,15 +70,14 @@ def _post_main_keyboard() -> dict:
 def build_main_menu(plan: str, is_owner: bool = False) -> str:
     """Адаптивное главное меню: текст + inline-кнопки (см. menu_keyboard)."""
     lines = ["🏠 **Главное меню**\n"]
-    lines.append("Выбирай кнопку ниже или команду:")
+    lines.append("Выбирай кнопку ниже:")
     if plan == "auto":
-        lines.append("• `/slots` — слоты автопостинга")
-    lines.append("• `✍️ Ручной постинг` — подменю (повторы, пост, резерв, бэкап)")
-    lines.append("• `/stats` — статистика")
-    lines.append("• `/channels` — мои каналы")
-    lines.append("• `/info` — о боте")
+        lines.append("• 🤖 **Автопостинг** — слоты, каналы авто")
+    lines.append("• ✍️ **Ручной постинг** — подменю (повторы, пост, резерв, бэкап)")
+    lines.append("• ℹ️ **Инфо** — о боте")
+    lines.append("•  **Статистика** — просмотры, пересылки")
     if is_owner:
-        lines.append("• `/admin` — админ-панель")
+        lines.append("• 🛠 **Админ-панель** — управление клиентами")
     return "\n".join(lines)
 
 
@@ -220,6 +227,31 @@ def handle_message(
             send_message(token, chat_id, "✍️ **Ручной постинг**\n\nМодуль недоступен.")
             return
         send_message(token, chat_id, "📝 **Ручной постинг**\n\nВыбирай действие:", reply_markup=_post_main_keyboard())
+        return
+
+    if cmd == "/autoposting_main":
+        if plan != "auto":
+            send_message(token, chat_id, "❌ Автопостинг доступен только по плану **auto**.")
+            return
+        if clients_db:
+            ch = clients_db.get_auto_channel(user_id)
+            if ch:
+                send_message(
+                    token, chat_id,
+                    f"🤖 **Автопостинг**\n\n"
+                    f"Канал: `{ch}`\n\n"
+                    "🗓 `/slots` — расписание\n"
+                    "📢 `/channels` — назначить канал",
+                    reply_markup=_autoposting_keyboard(),
+                )
+            else:
+                send_message(
+                    token, chat_id,
+                    "🤖 **Автопостинг**\n\n"
+                    "Канал автопостинга не назначен.\n\n"
+                    "Перешли пост из своего канала или `/add_auto <chat_id>`.",
+                    reply_markup=_autoposting_keyboard(),
+                )
         return
 
     # --- диалог повторяющихся сообщений (поглощает, если активен) ---

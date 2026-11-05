@@ -30,21 +30,17 @@ def _cfg(admin_id: int = 2005841409) -> Config:
 def test_menu_keyboard_free():
     kb = menu_keyboard("free")
     labels = [b["text"] for row in kb["inline_keyboard"] for b in row]
-    assert "🤖 Автопостинг / слоты" not in labels
+    assert "🤖 Автопостинг" not in labels  # только для auto
     assert "✍️ Ручной постинг" in labels
-    assert "📊 Статистика" in labels
-    assert "📢 Мои каналы" in labels
     assert "ℹ️ Инфо" in labels
-    # Повторяющиеся, Бэкап, Резерв — в подменю, не в главном
-    assert "🔁 Повторяющиеся" not in labels
-    assert "💾 Бэкап" not in labels
-    assert " Резерв" not in labels
+    assert "📊 Статистика" in labels
+    assert "Мои каналы" not in labels  # внутри подменю или через /channels
 
 
 def test_menu_keyboard_auto_has_autoposting():
     kb = menu_keyboard("auto")
     labels = [b["text"] for row in kb["inline_keyboard"] for b in row]
-    assert "🤖 Автопостинг / слоты" in labels
+    assert "🤖 Автопостинг" in labels
 
 
 def test_menu_keyboard_owner_has_admin():
@@ -55,16 +51,14 @@ def test_menu_keyboard_owner_has_admin():
 
 def test_build_main_menu_mentions_commands():
     text = build_main_menu("free")
-    # Главное меню: ручное подменю, stats, channels, info
     assert "Ручной постинг" in text
-    assert "/stats" in text
-    assert "/channels" in text
-    assert "/info" in text
-    # /repeat, /posts, /reserve, /backup — в подменю, не в главном
+    assert "Инфо" in text
+    assert "Статистика" in text
+    # Команды — в подменю, не в главном
     assert "/repeat" not in text
-    assert "/posts" not in text
-    assert "/reserve" not in text
-    assert "/backup" not in text
+    assert "/post" not in text
+    assert "/stats" not in text
+    assert "/channels" not in text
 
 
 def test_post_main_keyboard_shows_submenu():
